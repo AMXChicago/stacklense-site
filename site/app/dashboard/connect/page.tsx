@@ -20,26 +20,30 @@ export default function ConnectChooserPage() {
           <div className="connect-option-icon">🐙</div>
           <div className="connect-option-name">GitHub repo</div>
           <p className="connect-option-desc">
-            Pick a repo, we&rsquo;ll watch it for changes and infer your stack
-            from the code, deploy config, and CI workflows.
+            Pick a repo. We watch pushes and analyze your code, Dockerfile,
+            CI workflows, and deploy configs to build the blueprint.
           </p>
           <div className="connect-option-meta">OAuth · 30 sec</div>
         </Link>
 
         <Link href="/dashboard/connect/aws" className="connect-option">
-          <div className="connect-option-icon">☁️</div>
-          <div className="connect-option-name">AWS account</div>
+          <div className="connect-option-icon">📦</div>
+          <div className="connect-option-name">AWS ECR</div>
           <p className="connect-option-desc">
-            One-click CloudFormation creates a read-only IAM role + EventBridge
-            rule. We watch ECR pushes and read your live infrastructure.
+            One-click CloudFormation adds an EventBridge rule that pings us
+            on every ECR push. No IAM role, no AWS access — just outbound
+            webhooks.
           </p>
-          <div className="connect-option-meta">IAM Role · 60 sec</div>
+          <div className="connect-option-meta">EventBridge · 60 sec</div>
         </Link>
       </div>
 
       <p className="connect-foot">
-        Both paths are read-only. StackLense can never modify your code or
-        infrastructure. <Link href="/security">Security details</Link>
+        Connect either or both. Both are read-only — StackLense never modifies
+        your code or infrastructure.
+      </p>
+      <p className="connect-foot" style={{ marginTop: 8 }}>
+        More platforms coming soon (GitLab, Bitbucket, Docker Hub, GCR).
       </p>
     </>
   );

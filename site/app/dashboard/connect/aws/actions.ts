@@ -2,40 +2,33 @@
 
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
+import { randomBytes } from "crypto";
 import { createClient } from "@/utils/supabase/server";
 
-/**
- * Server action — finalize an AWS connection. Called from the
- * /dashboard/connect/aws form after the user has created the
- * CloudFormation stack and pasted the role ARN back.
- *
- * We don't yet do live IAM verification (that requires assuming the role
- * via STS, which needs the StackLense backend with sts:AssumeRole permission).
- * For 5b MVP we just persist the user's input and trust them; the connector
- * verification step happens out-of-band when the EventBridge rule fires.
- */
-export async function connectAwsProject(formData: FormData) {
-  const accountId = String(formData.get("aws_account_id") ?? "").trim();
-  const roleArn = String(formData.get("role_arn") ?? "").trim();
-  const externalId = String(formData.get("external_id") ?? "").trim();
-  const projectName = String(formData.get("project_name") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim() || null;
+function generateWebhookToken() {
+  // 48 chars of url-safe random — fits the CFN regex 32-128.
+  return randomBytes(36).toString("base64url");
+}
 
-  // Cheap input validation — RLS will catch anything weirder.
-  if (!/^[0-9]{12}$/.test(accountId)) {
-    redirect(
-      `/dashboard/connect/aws?error=${encodeURIComponent(
-        "AWS account ID must be 12 digits."
-      )}`
-    );
-  }
-  if (!/^arn:aws:iam::[0-9]{12}:role\/.+$/.test(roleArn)) {
-    redirect(
-      `/dashboard/connect/aws?error=${encodeURIComponent(
-        "That doesn't look like a valid IAM role ARN."
-      )}`
-    );
-  }
+/**
+ * Server action — create a new AWS-ECR-connected project. Generates a
+ * unique webhook token, persists the project, and redirects to the
+ * project detail page where the user gets the CloudFormation Quick Create
+ * button (with the token prefilled).
+ *
+ * No IAM role, no STS, no cross-account access — the user installs an
+ * EventBridge rule in their account that POSTs to our webhook with the
+ * token in a header. We validate, regenerate the blueprint, done.
+ */
+export async function createAwsProject(formData: FormData) {
+  const projectName = String(formData.get("project_name") ?? "").trim();
+  const description =
+    String(formData.get("description") ?? "").trim() || null;
+  const ecrAccountId =
+    String(formData.get("ecr_account_id") ?? "").trim() || null;
+  const ecrRepoName =
+    String(formData.get("ecr_repo_name") ?? "").trim() || null;
+
   if (!projectName) {
     redirect(
       `/dashboard/connect/aws?error=${encodeURIComponent(
@@ -43,16 +36,22 @@ export async function connectAwsProject(formData: FormData) {
       )}`
     );
   }
+  if (ecrAccountId && !/^[0-9]{12}$/.test(ecrAccountId)) {
+    redirect(
+      `/dashboard/connect/aws?error=${encodeURIComponent(
+        "AWS account ID must be 12 digits if provided."
+      )}`
+    );
+  }
 
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
+
+  const token = generateWebhookToken();
 
   const { data: project, error } = await supabase
     .from("projects")
@@ -60,12 +59,10 @@ export async function connectAwsProject(formData: FormData) {
       user_id: user.id,
       name: projectName,
       description,
-      aws_account_id: accountId,
-      // We stash role ARN + external ID inside a description-ish field for
-      // 5b. A dedicated columns/table will come with multi-tenant Lambda
-      // wiring (separate task).
-      ecr_repo: roleArn,
-      blueprint_s3_bucket: externalId,
+      ecr_aws_account_id: ecrAccountId,
+      ecr_repo_name: ecrRepoName,
+      ecr_webhook_token: token,
+      blueprint_status: "pending",
     })
     .select("id")
     .single();

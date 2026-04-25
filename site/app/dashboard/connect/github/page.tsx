@@ -104,6 +104,11 @@ export default async function ConnectGitHubPage({
                 />
                 <input
                   type="hidden"
+                  name="repo_id"
+                  value={repo.id}
+                />
+                <input
+                  type="hidden"
                   name="description"
                   value={repo.description ?? ""}
                 />
