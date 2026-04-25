@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -74,6 +75,9 @@ export default function Home() {
           <a className="nav-link" href="#features">
             Features
           </a>
+          <Link className="nav-link" href="/login">
+            Sign in
+          </Link>
           <a className="nav-cta" href="#waitlist" onClick={focusEmail}>
             Get early access
           </a>
