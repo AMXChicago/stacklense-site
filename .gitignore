@@ -1,0 +1,24 @@
+# MSP Lighthouse customer test project — not part of the public site repo
+stacklense-msp-connect/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
