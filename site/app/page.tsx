@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createClient } from "@/utils/supabase/client";
 
 export default function Home() {
+  const supabase = createClient();
   const emailRef = useRef<HTMLInputElement>(null);
   const email2Ref = useRef<HTMLInputElement>(null);
   const [submitted1, setSubmitted1] = useState(false);
@@ -22,13 +24,14 @@ export default function Home() {
     return () => observer.disconnect();
   }, []);
 
-  function persistSignup(email: string) {
-    try {
-      const signups = JSON.parse(localStorage.getItem("sl_signups") || "[]");
-      signups.push({ email, ts: new Date().toISOString() });
-      localStorage.setItem("sl_signups", JSON.stringify(signups));
-    } catch {
-      /* localStorage unavailable — ignore */
+  async function persistSignup(email: string, source: "hero" | "footer") {
+    const { error } = await supabase
+      .from("waitlist")
+      .insert({ email, source });
+    // Duplicate emails hit our unique index — treat as a successful signup so
+    // we don't leak which addresses are already on the list.
+    if (error && error.code !== "23505") {
+      console.error("waitlist insert failed:", error);
     }
   }
 
@@ -41,7 +44,7 @@ export default function Home() {
     }
     setError1(false);
     setSubmitted1(true);
-    persistSignup(email);
+    void persistSignup(email, "hero");
   }
 
   function handleSubmit2(e: React.FormEvent) {
@@ -49,7 +52,7 @@ export default function Home() {
     const email = email2Ref.current?.value.trim() ?? "";
     if (!email || !email.includes("@")) return;
     setSubmitted2(true);
-    persistSignup(email);
+    void persistSignup(email, "footer");
   }
 
   function focusEmail() {
