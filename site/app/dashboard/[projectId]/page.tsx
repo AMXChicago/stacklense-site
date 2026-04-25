@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { createClient } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -8,11 +10,31 @@ export const dynamic = "force-dynamic";
 // transition from generating → ready without manual refresh.
 export const revalidate = 5;
 
-const TEMPLATE_URL = "https://stacklense.com/aws/connect-stacklense.yaml";
+/**
+ * AWS CloudFormation Quick Create only accepts `templateURL` values that
+ * point to S3 buckets (https://*.s3.amazonaws.com/...). Arbitrary HTTPS
+ * URLs like our /aws/connect-stacklense.yaml fail with "TemplateURL must be
+ * a supported URL." So we read the YAML at server-render time and inline
+ * it via `templateBody` instead. Template is small (~6 KB encoded),
+ * comfortably under URL length limits.
+ */
+const TEMPLATE_BODY = (() => {
+  try {
+    return readFileSync(
+      join(process.cwd(), "public", "aws", "connect-stacklense.yaml"),
+      "utf8"
+    );
+  } catch {
+    // If the file isn't there for some reason, the CFN button will still
+    // render but AWS will reject it; surface a noisy error in logs.
+    console.error("[connect/aws] template file missing");
+    return "";
+  }
+})();
 
 function buildQuickCreateUrl(token: string) {
   const params = new URLSearchParams({
-    templateURL: TEMPLATE_URL,
+    templateBody: TEMPLATE_BODY,
     stackName: "StackLenseConnect",
     param_WebhookToken: token,
   });
