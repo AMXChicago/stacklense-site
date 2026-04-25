@@ -983,3 +983,369 @@ footer {
   .dash-nav-user { display: none; }
   .dash-main { padding: 100px 20px 60px; }
 }
+
+/* ============================================================================
+   CONNECT FLOW
+   ============================================================================ */
+
+.connect-back {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink3);
+  text-decoration: none;
+  margin-bottom: 32px;
+  transition: color 0.2s;
+}
+.connect-back:hover { color: var(--ink2); }
+
+.connect-chooser {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.connect-option {
+  background: var(--bg2);
+  padding: 36px 32px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.connect-option:hover { background: var(--bg3); }
+
+.connect-option-icon {
+  font-size: 32px;
+  margin-bottom: 18px;
+}
+
+.connect-option-name {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.connect-option-desc {
+  font-size: 14px;
+  color: var(--ink2);
+  line-height: 1.65;
+  margin-bottom: 20px;
+  flex: 1;
+}
+
+.connect-option-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--green);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connect-foot {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink3);
+  text-align: center;
+  margin-top: 32px;
+}
+.connect-foot a {
+  color: var(--ink2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* AWS steps */
+
+.aws-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.aws-step {
+  background: var(--bg2);
+  padding: 28px 32px;
+  display: flex;
+  gap: 24px;
+}
+
+.aws-step-num {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--green);
+  background: var(--green3);
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.aws-step-body { flex: 1; min-width: 0; }
+
+.aws-step-title {
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.aws-step-desc {
+  font-size: 14px;
+  color: var(--ink2);
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+
+.aws-step-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  margin-top: 14px;
+  word-break: break-all;
+}
+
+.aws-action-btn {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 10px 20px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  color: var(--green);
+  background: var(--green3);
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.aws-action-btn:hover { background: rgba(61, 214, 140, 0.16); }
+
+.aws-code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.aws-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.form-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.form-label:first-child { margin-top: 0; }
+
+.aws-submit {
+  margin-top: 12px;
+  width: auto;
+  align-self: flex-start;
+  padding: 12px 28px;
+}
+
+/* GitHub repo picker */
+
+.repo-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.repo-item { background: var(--bg2); transition: background 0.2s; }
+.repo-item:hover { background: var(--bg3); }
+
+.repo-form {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+.repo-info { flex: 1; min-width: 0; }
+
+.repo-name {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-private {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 400;
+}
+
+.repo-desc {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.5;
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+}
+
+.repo-connect-btn {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 18px;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  color: var(--green);
+  background: var(--green3);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.repo-connect-btn:hover { background: rgba(61, 214, 140, 0.16); }
+
+/* Project detail page */
+
+.project-section {
+  margin-bottom: 48px;
+}
+.project-section .dash-h2 { margin-bottom: 20px; }
+
+.project-meta {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px 24px;
+  font-size: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+}
+
+.project-meta dt {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-meta dd {
+  color: var(--ink);
+  margin: 0;
+  word-break: break-all;
+}
+.project-meta dd a {
+  color: var(--green);
+  text-decoration: none;
+}
+.project-meta dd a:hover { text-decoration: underline; }
+
+.project-empty {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.7;
+}
+
+.deploy-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.deploy-item {
+  background: var(--bg2);
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: 200px 1fr 160px;
+  gap: 24px;
+  font-size: 13px;
+  align-items: center;
+}
+
+.deploy-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--green);
+}
+
+.deploy-note { color: var(--ink2); }
+
+.deploy-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .connect-chooser { grid-template-columns: 1fr; }
+  .aws-step { flex-direction: column; gap: 16px; padding: 24px 20px; }
+  .repo-form { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .project-meta { grid-template-columns: 1fr; gap: 4px 0; }
+  .project-meta dt { margin-top: 12px; }
+  .project-meta dt:first-child { margin-top: 0; }
+  .deploy-item { grid-template-columns: 1fr; gap: 6px; }
+  .deploy-time { text-align: left; }
+}
