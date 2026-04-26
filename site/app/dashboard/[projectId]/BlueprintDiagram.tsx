@@ -1,33 +1,53 @@
 "use client";
 
 /**
- * Blueprint diagram — project hero + connected category grid.
+ * Blueprint architecture diagram — full rebuild.
  *
- * Reads top-down:
+ * Previous iterations grouped components by lifecycle category. That's
+ * the right LIST view, but it's the wrong DIAGRAM view. A blueprint
+ * diagram should answer "how do the pieces fit together?" — for which
+ * the right unit is the component (each AWS service is its own box),
+ * not the category bucket.
  *
- *   1. Hero — project name + summary anchors the visual identity.
- *   2. Connector — subtle line + chevron implies "everything below
- *      makes the project above tick".
- *   3. Connected category grid — fixed 4×3 grid with grid-template-
- *      areas so positions are predictable. Each card has a prominent
- *      primary-vendor logo, plain-English title + subtitle, and
- *      clickable component tiles inside.
- *   4. SVG overlay — drawn behind the cards, paints curved paths
- *      between connected categories. Path endpoints sit at card
- *      centres so the visible bit of each path is the segment between
- *      cards (the part inside cards is hidden behind their opaque
- *      backgrounds). Arrowheads at the destination end. Connections
- *      are LLM-generated (aggregated component → component links up
- *      to category level) plus a seed set of canonical architectural
- *      flows so the standard "code → hosting → data, auth, comms,
- *      payments" story is always visible even when the LLM is sparse.
+ * Layout, top to bottom:
  *
- * Responsive: the 4×3 grid collapses to 2 columns and then 1 column
- * at narrower widths; the SVG overlay hides itself on those layouts
- * (linear stacking already conveys the flow).
+ *   1. Project hero — name + summary + stats. Anchors identity.
+ *
+ *   2. Platform filter row — clickable chips for each detected
+ *      platform (AWS, OpenAI, Vercel, GitHub, etc.) with vendor logo
+ *      and component count. Click a chip to highlight that platform's
+ *      components and dim the rest. Click again to clear.
+ *
+ *   3. Architecture canvas — React Flow with dagre auto-layout
+ *      (rankdir TB). Each component is a node with vendor logo + name +
+ *      platform-coloured border. Edges come from the LLM's
+ *      component-level connections plus a small set of canonical
+ *      defaults inferred from typical web-app architecture (DNS →
+ *      ALB → compute → backing services).
+ *
+ * Why React Flow + dagre: hand-rolling auto-layout, edge routing, and
+ * pan/zoom for variable-shape architecture diagrams was producing
+ * broken results in earlier iterations. RF is built for this; we just
+ * style its nodes/edges to match our card aesthetic so the canvas
+ * doesn't feel like a foreign embed. No mini-map, no chrome buttons,
+ * no canvas border — just nodes, edges, and the page background.
+ *
+ * Future work: the structure is set up to add an animated
+ * "user journey" walkthrough (request flowing edge by edge) without
+ * changing the layout — each edge already has a stable id.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import ReactFlow, {
+  Background,
+  type Edge,
+  type Node,
+  type NodeProps,
+  Handle,
+  Position,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import dagre from "dagre";
 import { VendorLogo } from "./VendorLogo";
 
 export type DiagramComponent = {
@@ -51,113 +71,260 @@ export type DiagramConnection = {
   label?: string;
 };
 
-const CATEGORY_FRIENDLY: Record<
-  string,
-  { title: string; subtitle: string; color: string }
-> = {
-  ai_dev_tools: {
-    title: "AI helpers",
-    subtitle: "Tools you use to write the code.",
-    color: "#a855f7",
-  },
-  source_control: {
-    title: "Code repository",
-    subtitle: "Where your code is stored online.",
-    color: "#f59e0b",
-  },
-  ci_cd: {
-    title: "Deployment pipeline",
-    subtitle: "How code goes from your laptop to live.",
-    color: "#06b6d4",
-  },
-  application_stack: {
-    title: "App framework",
-    subtitle: "What your app is built with.",
-    color: "#3dd68c",
-  },
-  hosting_compute: {
-    title: "Where it runs",
-    subtitle: "The servers that keep your app online.",
-    color: "#8b5cf6",
-  },
-  data_storage: {
-    title: "Data & files",
-    subtitle: "Databases, file storage, caches.",
-    color: "#3b82f6",
-  },
-  authentication: {
-    title: "User login",
-    subtitle: "How people sign in.",
-    color: "#ec4899",
-  },
-  communications: {
-    title: "Email & messaging",
-    subtitle: "How your app talks to users.",
-    color: "#ef4444",
-  },
-  domains_dns: {
-    title: "Web addresses",
-    subtitle: "Your URLs and DNS resolution.",
-    color: "#a8a79f",
-  },
-  payments: {
-    title: "Payments",
-    subtitle: "How your app accepts money.",
-    color: "#22c55e",
-  },
-  observability: {
-    title: "Logs & alerts",
-    subtitle: "How you spot problems.",
-    color: "#0ea5e9",
-  },
-  security_secrets: {
-    title: "Secrets & certificates",
-    subtitle: "API keys, passwords, SSL.",
-    color: "#f43f5e",
-  },
+// ----------------------------------------------------------------------------
+// Platform inference
+// ----------------------------------------------------------------------------
+
+type PlatformKey =
+  | "aws"
+  | "vercel"
+  | "cloudflare"
+  | "gcp"
+  | "azure"
+  | "github"
+  | "gitlab"
+  | "supabase"
+  | "openai"
+  | "anthropic"
+  | "stripe"
+  | "nodejs"
+  | "nextjs"
+  | "react"
+  | "registrar"
+  | "other";
+
+type PlatformInfo = {
+  key: PlatformKey;
+  name: string;
+  color: string;
+  logoVendor: string;
 };
 
-/**
- * Fixed grid placement. 4 columns × 3 rows. Order matches the
- * canonical category list, with hosting placed at row-2 col-1 so it
- * naturally becomes the central hub for the connection paths.
- */
-const GRID_AREAS: Array<Array<string>> = [
-  ["ai_dev_tools", "source_control", "ci_cd", "application_stack"],
-  ["hosting_compute", "data_storage", "authentication", "communications"],
-  ["domains_dns", "payments", "observability", "security_secrets"],
-];
+const PLATFORM_META: Record<PlatformKey, PlatformInfo> = {
+  aws: { key: "aws", name: "AWS", color: "#ff9900", logoVendor: "Amazon Web Services" },
+  vercel: { key: "vercel", name: "Vercel", color: "#ffffff", logoVendor: "Vercel" },
+  cloudflare: { key: "cloudflare", name: "Cloudflare", color: "#f38020", logoVendor: "Cloudflare" },
+  gcp: { key: "gcp", name: "Google Cloud", color: "#4285f4", logoVendor: "Google Cloud" },
+  azure: { key: "azure", name: "Microsoft Azure", color: "#0078d4", logoVendor: "Azure" },
+  github: { key: "github", name: "GitHub", color: "#a8a79f", logoVendor: "GitHub" },
+  gitlab: { key: "gitlab", name: "GitLab", color: "#fc6d26", logoVendor: "GitLab" },
+  supabase: { key: "supabase", name: "Supabase", color: "#3ecf8e", logoVendor: "Supabase" },
+  openai: { key: "openai", name: "OpenAI", color: "#10a37f", logoVendor: "OpenAI" },
+  anthropic: { key: "anthropic", name: "Anthropic", color: "#d97757", logoVendor: "Anthropic" },
+  stripe: { key: "stripe", name: "Stripe", color: "#635bff", logoVendor: "Stripe" },
+  nodejs: { key: "nodejs", name: "Node.js", color: "#3dd68c", logoVendor: "Node.js" },
+  nextjs: { key: "nextjs", name: "Next.js", color: "#ffffff", logoVendor: "Next.js" },
+  react: { key: "react", name: "React", color: "#61dafb", logoVendor: "React" },
+  registrar: { key: "registrar", name: "Domain registrar", color: "#a8a79f", logoVendor: "GoDaddy" },
+  other: { key: "other", name: "Other", color: "#888888", logoVendor: "" },
+};
+
+function inferPlatform(name: string | undefined | null): PlatformKey {
+  if (!name) return "other";
+  const v = name.toLowerCase();
+  if (/amazon|^aws\b|aws /.test(v)) return "aws";
+  if (/vercel/.test(v)) return "vercel";
+  if (/cloudflare/.test(v)) return "cloudflare";
+  if (/google cloud|gcp\b/.test(v)) return "gcp";
+  if (/azure|microsoft/.test(v)) return "azure";
+  if (/github/.test(v)) return "github";
+  if (/gitlab/.test(v)) return "gitlab";
+  if (/supabase/.test(v)) return "supabase";
+  if (/openai|chatgpt|codex/.test(v)) return "openai";
+  if (/anthropic|claude/.test(v)) return "anthropic";
+  if (/stripe/.test(v)) return "stripe";
+  if (/^next\.?js/.test(v)) return "nextjs";
+  if (/node\.?js|^node\b/.test(v)) return "nodejs";
+  if (/^react\b/.test(v)) return "react";
+  if (/godaddy|namecheap|porkbun|name\.com/.test(v)) return "registrar";
+  return "other";
+}
+
+// ----------------------------------------------------------------------------
+// Custom node + layout
+// ----------------------------------------------------------------------------
+
+const NODE_WIDTH = 240;
+const NODE_HEIGHT = 80;
+
+type ComponentNodeData = {
+  name: string;
+  vendor: string;
+  description: string;
+  console_url?: string;
+  platform: PlatformKey;
+  color: string;
+  dimmed: boolean;
+};
+
+function ComponentNode({ data }: NodeProps<ComponentNodeData>) {
+  const inner = (
+    <>
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ visibility: "hidden" }}
+      />
+      <div className="arch-node-logo">
+        <VendorLogo vendor={data.vendor} size={32} />
+      </div>
+      <div className="arch-node-text">
+        <div className="arch-node-name">{data.name}</div>
+        <div className="arch-node-vendor">{data.vendor}</div>
+      </div>
+      {data.console_url && (
+        <span className="arch-node-arrow" aria-hidden>
+          ↗
+        </span>
+      )}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ visibility: "hidden" }}
+      />
+    </>
+  );
+
+  const className = `arch-node ${data.dimmed ? "arch-node-dimmed" : ""}`;
+  const style = {
+    width: NODE_WIDTH,
+    minHeight: NODE_HEIGHT,
+    ["--arch-color" as string]: data.color,
+  };
+
+  if (data.console_url) {
+    return (
+      <a
+        href={data.console_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`${className} arch-node-link`}
+        style={style}
+        title={`Open ${data.name} in vendor console`}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <div className={className} style={style}>
+      {inner}
+    </div>
+  );
+}
+
+const NODE_TYPES = { component: ComponentNode };
+
+function layoutWithDagre(
+  nodes: Node[],
+  edges: Edge[]
+): { nodes: Node[]; width: number; height: number } {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: "TB",
+    nodesep: 50,
+    ranksep: 90,
+    marginx: 20,
+    marginy: 20,
+  });
+
+  for (const n of nodes) {
+    g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
+  for (const e of edges) {
+    g.setEdge(e.source, e.target);
+  }
+
+  dagre.layout(g);
+
+  let maxX = 0;
+  let maxY = 0;
+  const positioned = nodes.map((n) => {
+    const pos = g.node(n.id);
+    const x = (pos?.x ?? 0) - NODE_WIDTH / 2;
+    const y = (pos?.y ?? 0) - NODE_HEIGHT / 2;
+    maxX = Math.max(maxX, x + NODE_WIDTH);
+    maxY = Math.max(maxY, y + NODE_HEIGHT);
+    return { ...n, position: { x, y } };
+  });
+
+  return { nodes: positioned, width: maxX + 40, height: maxY + 40 };
+}
+
+// ----------------------------------------------------------------------------
+// Canonical edge inference (for when LLM connections are sparse)
+// ----------------------------------------------------------------------------
 
 /**
- * Canonical architectural flows. Pruned to four cleanly-routable
- * connections that tell the core story without producing visual
- * mess:
+ * If the LLM didn't emit connections for the typical web-app spine,
+ * fill them in by category. Picks the FIRST component in each category
+ * as the representative; users can verify in the List view.
  *
- *   - App framework "runs on" Hosting (diagonal across rows)
- *   - DNS "resolves to" Hosting (vertical, same column)
- *   - Hosting "reads / writes" Data (horizontal, adjacent)
- *   - Hosting "logs to" Observability (diagonal across rows)
- *
- * Earlier iterations tried to connect Hosting to Auth, Comms, and
- * Payments too. Those are all in row 1 alongside Hosting and Data,
- * but non-adjacent — drawing a path between non-adjacent cards in the
- * same row inevitably crosses through the cards in between, which
- * looks broken. The customer can still see those vendors in their
- * cards directly under the Hosting card; they don't need an arrow to
- * understand the relationship.
- *
- * No LLM-generated connections are merged in here. The LLM emits
- * edges between specific component IDs; those occasionally produce
- * edges between categories that route badly (e.g., "S3 → Lambda"
- * collapses to data → hosting which crosses cards). Sticking to the
- * canonical four keeps the visual unambiguous.
+ *   DNS → entry compute (load balancer or first hosting compute)
+ *   App framework → first hosting compute
+ *   First hosting compute → first data store
+ *   First hosting compute → first auth provider
+ *   First hosting compute → first comms provider
+ *   First hosting compute → first observability tool
  */
-const DEFAULT_CONNECTIONS: DiagramConnection[] = [
-  { from: "application_stack", to: "hosting_compute", label: "runs on" },
-  { from: "domains_dns", to: "hosting_compute", label: "resolves to" },
-  { from: "hosting_compute", to: "data_storage", label: "reads / writes" },
-  { from: "hosting_compute", to: "observability", label: "logs to" },
-];
+function inferDefaultConnections(
+  categories: DiagramCategory[],
+  existing: DiagramConnection[]
+): DiagramConnection[] {
+  const byKey = new Map(categories.map((c) => [c.key, c]));
+  const first = (key: string): DiagramComponent | undefined =>
+    byKey.get(key)?.components[0];
+
+  const have = new Set(existing.map((c) => `${c.from}|${c.to}`));
+  const out: DiagramConnection[] = [];
+  const tryAdd = (
+    from: DiagramComponent | undefined,
+    to: DiagramComponent | undefined,
+    label: string
+  ) => {
+    if (!from || !to || from.id === to.id) return;
+    const key = `${from.id}|${to.id}`;
+    if (have.has(key)) return;
+    have.add(key);
+    out.push({ from: from.id, to: to.id, label });
+  };
+
+  const dns = first("domains_dns");
+  // For "entry" compute prefer a load balancer if one exists in the
+  // hosting category; otherwise the first hosting component.
+  const hosting = byKey.get("hosting_compute")?.components ?? [];
+  const lb = hosting.find((c) =>
+    /load balancer|alb|elb|cloudfront|ingress/i.test(`${c.name} ${c.vendor ?? ""}`)
+  );
+  const compute = hosting.find((c) =>
+    /ecs|fargate|lambda|app runner|kubernetes|vercel|netlify|fly\.io|render|cloud run/i.test(
+      `${c.name} ${c.vendor ?? ""}`
+    )
+  );
+  const entry = lb ?? compute ?? hosting[0];
+  const main = compute ?? hosting[0];
+
+  tryAdd(dns, entry, "resolves to");
+  if (lb && main && lb.id !== main.id) {
+    tryAdd(lb, main, "routes to");
+  }
+  tryAdd(first("application_stack"), main, "runs on");
+  tryAdd(main, first("data_storage"), "reads / writes");
+  tryAdd(main, first("authentication"), "signs users in");
+  tryAdd(main, first("communications"), "sends email");
+  tryAdd(main, first("payments"), "charges via");
+  tryAdd(main, first("observability"), "logs to");
+  tryAdd(first("security_secrets"), main, "provides credentials");
+  // CI/CD typically deploys TO compute.
+  tryAdd(first("ci_cd"), main, "deploys to");
+
+  return [...existing, ...out];
+}
+
+// ----------------------------------------------------------------------------
+// Main component
+// ----------------------------------------------------------------------------
 
 export function BlueprintDiagram({
   projectName,
@@ -170,13 +337,108 @@ export function BlueprintDiagram({
   categories: DiagramCategory[];
   connections?: DiagramConnection[];
 }) {
-  const totalComponents = categories.reduce(
-    (sum, c) => sum + c.components.length,
-    0
-  );
-  const populatedCategories = categories.filter(
-    (c) => c.components.length > 0
-  ).length;
+  const [selectedPlatform, setSelectedPlatform] =
+    useState<PlatformKey | null>(null);
+
+  // Flatten components and infer platform per item.
+  const flatComponents = useMemo(() => {
+    return categories.flatMap((cat) =>
+      cat.components.map((c) => ({
+        ...c,
+        categoryKey: cat.key,
+        platform: inferPlatform(c.vendor ?? c.name),
+      }))
+    );
+  }, [categories]);
+
+  const totalComponents = flatComponents.length;
+
+  // Distinct platforms (with counts) — for the filter row.
+  const platforms = useMemo(() => {
+    const counts = new Map<PlatformKey, number>();
+    for (const c of flatComponents) {
+      counts.set(c.platform, (counts.get(c.platform) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([key, count]) => ({ ...PLATFORM_META[key], count }))
+      // Hide "other" from the filter row — it's a catch-all and not
+      // useful as a filter target.
+      .filter((p) => p.key !== "other")
+      .sort((a, b) => b.count - a.count);
+  }, [flatComponents]);
+
+  // Build edges: LLM connections + canonical defaults.
+  const allConnections = useMemo(() => {
+    return inferDefaultConnections(categories, connections);
+  }, [categories, connections]);
+
+  // Build React Flow nodes & edges.
+  const { positionedNodes, edges, canvasHeight } = useMemo(() => {
+    const ids = new Set(flatComponents.map((c) => c.id));
+
+    const rawNodes: Node<ComponentNodeData>[] = flatComponents.map((c) => ({
+      id: c.id,
+      type: "component",
+      position: { x: 0, y: 0 },
+      data: {
+        name: c.name,
+        vendor: c.vendor ?? c.name,
+        description: c.description,
+        console_url: c.console_url,
+        platform: c.platform,
+        color: PLATFORM_META[c.platform].color,
+        dimmed:
+          selectedPlatform !== null && c.platform !== selectedPlatform,
+      },
+    }));
+
+    const rawEdges: Edge[] = allConnections
+      .filter((c) => ids.has(c.from) && ids.has(c.to))
+      .map((c, i) => {
+        // Edge dimming follows node dimming: edges where BOTH endpoints
+        // are in the selected platform stay bright; everything else
+        // dims with the unselected nodes.
+        const fromComp = flatComponents.find((x) => x.id === c.from);
+        const toComp = flatComponents.find((x) => x.id === c.to);
+        const dimmed =
+          selectedPlatform !== null &&
+          (fromComp?.platform !== selectedPlatform ||
+            toComp?.platform !== selectedPlatform);
+        return {
+          id: `e-${i}-${c.from}-${c.to}`,
+          source: c.from,
+          target: c.to,
+          label: c.label,
+          type: "smoothstep",
+          animated: false,
+          style: {
+            stroke: dimmed ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.4)",
+            strokeWidth: 1.5,
+            transition: "stroke 0.2s",
+          },
+          labelStyle: {
+            fill: dimmed ? "rgba(168,167,159,0.3)" : "#a8a79f",
+            fontFamily: "monospace",
+            fontSize: 10,
+          },
+          labelBgPadding: [6, 4] as [number, number],
+          labelBgBorderRadius: 4,
+          labelBgStyle: {
+            fill: "#0c0c0a",
+            fillOpacity: dimmed ? 0.5 : 0.9,
+          },
+        };
+      });
+
+    const laid = layoutWithDagre(rawNodes, rawEdges);
+    return {
+      positionedNodes: laid.nodes,
+      edges: rawEdges,
+      canvasHeight: Math.max(laid.height, 480),
+    };
+    // selectedPlatform recomputes node/edge data; flatComponents and
+    // allConnections feed into both layout and styling.
+  }, [flatComponents, allConnections, selectedPlatform]);
 
   if (totalComponents === 0) {
     return (
@@ -190,21 +452,12 @@ export function BlueprintDiagram({
     );
   }
 
-  // Use ONLY the canonical default connections — no LLM merge. LLM
-  // edges aggregate poorly to category level (they often connect
-  // non-adjacent cards through other cards). The defaults tell the
-  // core story cleanly. The `connections` prop is still accepted for
-  // backward compat with callers; we just don't render them.
-  void connections;
-  const populated = new Set(
-    categories.filter((c) => c.components.length > 0).map((c) => c.key)
-  );
-  const activeConnections = DEFAULT_CONNECTIONS.filter(
-    (c) => populated.has(c.from) && populated.has(c.to)
-  );
+  const populatedCategories = categories.filter(
+    (c) => c.components.length > 0
+  ).length;
 
   return (
-    <div className="bp-board">
+    <div className="arch-board">
       <ProjectHero
         name={projectName}
         summary={projectSummary}
@@ -212,18 +465,45 @@ export function BlueprintDiagram({
         populatedCategories={populatedCategories}
       />
 
-      <div className="bp-board-link" aria-hidden>
-        <div className="bp-board-link-line" />
-        <div className="bp-board-link-chevron">▾</div>
-      </div>
-
-      <ConnectedGrid
-        categories={categories}
-        connections={activeConnections}
+      <PlatformFilterRow
+        platforms={platforms}
+        selected={selectedPlatform}
+        onSelect={(key) =>
+          setSelectedPlatform((prev) => (prev === key ? null : key))
+        }
       />
+
+      <div
+        className="arch-canvas"
+        style={{ height: canvasHeight, minHeight: 480 }}
+      >
+        <ReactFlow
+          nodes={positionedNodes}
+          edges={edges}
+          nodeTypes={NODE_TYPES}
+          fitView
+          fitViewOptions={{ padding: 0.12, minZoom: 0.5, maxZoom: 1.1 }}
+          minZoom={0.4}
+          maxZoom={1.5}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          edgesFocusable={false}
+          panOnDrag={true}
+          zoomOnScroll={false}
+          zoomOnPinch={true}
+          zoomOnDoubleClick={false}
+        >
+          <Background gap={32} size={1} color="rgba(255,255,255,0.03)" />
+        </ReactFlow>
+      </div>
     </div>
   );
 }
+
+// ----------------------------------------------------------------------------
+// Sub-components
+// ----------------------------------------------------------------------------
 
 function ProjectHero({
   name,
@@ -238,24 +518,21 @@ function ProjectHero({
 }) {
   const mark = monogramFromName(name);
   return (
-    <header className="bp-board-hero">
-      <div className="bp-board-mark" aria-hidden>
+    <header className="arch-hero">
+      <div className="arch-hero-mark" aria-hidden>
         {mark}
       </div>
-      <div className="bp-board-hero-text">
-        <h2 className="bp-board-name">{name}</h2>
-        {summary && <p className="bp-board-summary">{summary}</p>}
-        <p className="bp-board-stats">
-          <span className="bp-board-stat">
+      <div className="arch-hero-text">
+        <h2 className="arch-hero-name">{name}</h2>
+        {summary && <p className="arch-hero-summary">{summary}</p>}
+        <p className="arch-hero-stats">
+          <span>
             <strong>{totalComponents}</strong> component
             {totalComponents === 1 ? "" : "s"} detected
           </span>
-          <span className="bp-board-stat-sep" aria-hidden>
-            ·
-          </span>
-          <span className="bp-board-stat">
-            across <strong>{populatedCategories}</strong> of{" "}
-            {Object.keys(CATEGORY_FRIENDLY).length} categories
+          <span aria-hidden>·</span>
+          <span>
+            across <strong>{populatedCategories}</strong> of 12 categories
           </span>
         </p>
       </div>
@@ -263,383 +540,44 @@ function ProjectHero({
   );
 }
 
-/**
- * The grid + the SVG overlay layered above it. The grid uses
- * grid-template-areas so each card has a known position the overlay
- * can draw paths between via runtime DOM measurement.
- */
-function ConnectedGrid({
-  categories,
-  connections,
+function PlatformFilterRow({
+  platforms,
+  selected,
+  onSelect,
 }: {
-  categories: DiagramCategory[];
-  connections: DiagramConnection[];
+  platforms: Array<PlatformInfo & { count: number }>;
+  selected: PlatformKey | null;
+  onSelect: (key: PlatformKey) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const cardRefs = useRef<Record<string, HTMLElement | null>>({});
-
-  // Lookup by category key — handy for the cards.
-  const byKey = new Map(categories.map((c) => [c.key, c]));
-
+  if (platforms.length === 0) return null;
   return (
-    <div className="bp-board-grid-wrap" ref={containerRef}>
-      <ConnectionOverlay
-        containerRef={containerRef}
-        cardRefs={cardRefs}
-        connections={connections}
-      />
-      <div className="bp-board-grid">
-        {GRID_AREAS.flat().map((key) => {
-          const cat = byKey.get(key);
-          if (!cat) return null;
+    <div className="arch-platforms">
+      <p className="arch-platforms-label">
+        Click a platform to highlight what it powers
+      </p>
+      <div className="arch-platforms-chips" role="tablist">
+        {platforms.map((p) => {
+          const active = selected === p.key;
           return (
-            <CategoryCard
-              key={key}
-              gridArea={key}
-              category={cat}
-              setRef={(el) => {
-                cardRefs.current[key] = el;
-              }}
-            />
+            <button
+              key={p.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelect(p.key)}
+              className={`arch-chip ${active ? "arch-chip-active" : ""}`}
+              style={{ ["--chip-color" as string]: p.color }}
+            >
+              <span className="arch-chip-logo">
+                <VendorLogo vendor={p.logoVendor} size={20} />
+              </span>
+              <span className="arch-chip-name">{p.name}</span>
+              <span className="arch-chip-count">{p.count}</span>
+            </button>
           );
         })}
       </div>
     </div>
-  );
-}
-
-function CategoryCard({
-  category,
-  gridArea,
-  setRef,
-}: {
-  category: DiagramCategory;
-  gridArea: string;
-  setRef: (el: HTMLElement | null) => void;
-}) {
-  const friendly = CATEGORY_FRIENDLY[category.key] ?? {
-    title: category.label,
-    subtitle: "",
-    color: "#888",
-  };
-  const isEmpty = category.components.length === 0;
-  // Primary vendor for the hero logo on this card. Falls back to the
-  // first component's name when no vendor is set.
-  const primary = category.components[0];
-  const primaryVendor = primary?.vendor ?? primary?.name;
-
-  return (
-    <article
-      ref={setRef}
-      className={`bp-board-cat ${isEmpty ? "bp-board-cat-empty" : ""}`}
-      style={{
-        ["--cat-color" as string]: friendly.color,
-        gridArea,
-      }}
-    >
-      <header className="bp-board-cat-head">
-        <div className="bp-board-cat-logo">
-          {primaryVendor ? (
-            <VendorLogo vendor={primaryVendor} size={44} />
-          ) : (
-            <div className="bp-board-cat-logo-placeholder" aria-hidden />
-          )}
-        </div>
-        <div className="bp-board-cat-head-text">
-          <h3 className="bp-board-cat-title">{friendly.title}</h3>
-          {friendly.subtitle && (
-            <p className="bp-board-cat-subtitle">{friendly.subtitle}</p>
-          )}
-          <p className="bp-board-cat-tech">{category.label}</p>
-        </div>
-      </header>
-      <div className="bp-board-cat-body">
-        {isEmpty ? (
-          <div className="bp-board-cat-not-detected">
-            Not detected — either you don&rsquo;t use this, or our scan
-            didn&rsquo;t spot it.
-          </div>
-        ) : (
-          <ul className="bp-board-comps">
-            {category.components.map((c) => (
-              <li key={c.id}>
-                <ComponentTile component={c} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function ComponentTile({ component }: { component: DiagramComponent }) {
-  const inner = (
-    <>
-      <VendorLogo
-        vendor={component.vendor ?? component.name}
-        size={24}
-      />
-      <div className="bp-board-comp-text">
-        <div className="bp-board-comp-name">{component.name}</div>
-        {component.vendor && component.vendor !== component.name && (
-          <div className="bp-board-comp-vendor">{component.vendor}</div>
-        )}
-      </div>
-      {component.console_url && (
-        <span className="bp-board-comp-arrow" aria-hidden>
-          ↗
-        </span>
-      )}
-    </>
-  );
-  if (component.console_url) {
-    return (
-      <a
-        href={component.console_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="bp-board-comp bp-board-comp-link"
-        title={`Open ${component.name} in vendor console`}
-      >
-        {inner}
-      </a>
-    );
-  }
-  return <div className="bp-board-comp">{inner}</div>;
-}
-
-// ----------------------------------------------------------------------------
-// SVG connection overlay
-// ----------------------------------------------------------------------------
-
-type ResolvedPath = {
-  key: string;
-  d: string; // SVG path
-  label?: string;
-  midX: number;
-  midY: number;
-  color: string;
-};
-
-/**
- * Sits absolutely positioned over the grid wrapper. Measures card
- * positions via getBoundingClientRect and draws curved bezier paths
- * between connected category cards. Re-measures on resize via a
- * ResizeObserver. Hides itself on narrow viewports where the grid
- * collapses to a single column.
- */
-function ConnectionOverlay({
-  containerRef,
-  cardRefs,
-  connections,
-}: {
-  containerRef: React.RefObject<HTMLDivElement | null>;
-  cardRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
-  connections: DiagramConnection[];
-}) {
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  const [paths, setPaths] = useState<ResolvedPath[]>([]);
-
-  const measure = () => {
-    const c = containerRef.current;
-    if (!c) return;
-    const cb = c.getBoundingClientRect();
-    setSize({ w: cb.width, h: cb.height });
-
-    const next: ResolvedPath[] = [];
-    for (const conn of connections) {
-      const fromEl = cardRefs.current[conn.from];
-      const toEl = cardRefs.current[conn.to];
-      if (!fromEl || !toEl) continue;
-      const fromPos = gridPos(conn.from);
-      const toPos = gridPos(conn.to);
-      if (!fromPos || !toPos) continue;
-      const [fr, fc] = fromPos;
-      const [tr, tc] = toPos;
-
-      const fb = fromEl.getBoundingClientRect();
-      const tb = toEl.getBoundingClientRect();
-
-      // Card centres in container-relative coords.
-      const fcx = fb.left + fb.width / 2 - cb.left;
-      const fcy = fb.top + fb.height / 2 - cb.top;
-      const tcx = tb.left + tb.width / 2 - cb.left;
-      const tcy = tb.top + tb.height / 2 - cb.top;
-
-      // Routing strategy keyed on grid position rather than raw pixel
-      // distance. Three cases:
-      //
-      //   - Same row → horizontal: exit/enter via left/right edges.
-      //     Path lives in the column gap between cards.
-      //   - Same col → vertical: exit/enter via top/bottom edges.
-      //     Path lives in the row gap between cards.
-      //   - Diagonal (different row AND different col) → vertical:
-      //     exit/enter via top/bottom edges. Path traverses
-      //     horizontally through the inter-row gap, which is empty
-      //     space — so the curve never crosses other cards.
-      //
-      // This avoids the fragile "is the dominant pixel axis horizontal
-      // or vertical" check, which can produce paths that route
-      // straight through other cards on diagonals.
-      let fx: number, fy: number, tx: number, ty: number;
-      let axis: "h" | "v";
-      if (fr === tr) {
-        axis = "h";
-        if (fc < tc) {
-          fx = fb.right - cb.left;
-          fy = fcy;
-          tx = tb.left - cb.left;
-          ty = tcy;
-        } else {
-          fx = fb.left - cb.left;
-          fy = fcy;
-          tx = tb.right - cb.left;
-          ty = tcy;
-        }
-      } else {
-        axis = "v";
-        if (fr < tr) {
-          fx = fcx;
-          fy = fb.bottom - cb.top;
-          tx = tcx;
-          ty = tb.top - cb.top;
-        } else {
-          fx = fcx;
-          fy = fb.top - cb.top;
-          tx = tcx;
-          ty = tb.bottom - cb.top;
-        }
-      }
-
-      // Bezier control points: pull each control point along the
-      // routing axis to mid-span. Creates a soft S-curve where
-      // horizontal connections curve through the column gap and
-      // vertical/diagonal connections curve through the row gap.
-      let c1x: number, c1y: number, c2x: number, c2y: number;
-      if (axis === "h") {
-        const mid = (fx + tx) / 2;
-        c1x = mid;
-        c1y = fy;
-        c2x = mid;
-        c2y = ty;
-      } else {
-        const mid = (fy + ty) / 2;
-        c1x = fx;
-        c1y = mid;
-        c2x = tx;
-        c2y = mid;
-      }
-
-      const d = `M ${fx} ${fy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`;
-
-      // True bezier midpoint at t=0.5 — for cubic bezier:
-      //   B(0.5) = 0.125 * P0 + 0.375 * P1 + 0.375 * P2 + 0.125 * P3
-      const midX = 0.125 * fx + 0.375 * c1x + 0.375 * c2x + 0.125 * tx;
-      const midY = 0.125 * fy + 0.375 * c1y + 0.375 * c2y + 0.125 * ty;
-
-      const color =
-        CATEGORY_FRIENDLY[conn.to]?.color ?? "rgba(255,255,255,0.6)";
-
-      next.push({
-        key: `${conn.from}->${conn.to}`,
-        d,
-        label: conn.label,
-        midX,
-        midY,
-        color,
-      });
-    }
-    setPaths(next);
-  };
-
-  // useLayoutEffect runs after refs are set & DOM is laid out but
-  // before paint — gives us correct geometry on the first render
-  // without flicker.
-  useLayoutEffect(() => {
-    measure();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connections]);
-
-  useEffect(() => {
-    const c = containerRef.current;
-    if (!c) return;
-    const ro = new ResizeObserver(() => measure());
-    ro.observe(c);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (size.w === 0 || paths.length === 0) return null;
-
-  return (
-    <svg
-      className="bp-board-overlay"
-      width={size.w}
-      height={size.h}
-      viewBox={`0 0 ${size.w} ${size.h}`}
-      aria-hidden
-    >
-      <defs>
-        {paths.map((p) => (
-          <marker
-            key={`m-${p.key}`}
-            id={`arrow-${p.key}`}
-            viewBox="0 0 10 10"
-            refX="6"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} opacity="0.85" />
-          </marker>
-        ))}
-      </defs>
-      {paths.map((p) => (
-        <path
-          key={p.key}
-          d={p.d}
-          stroke={p.color}
-          strokeWidth={2.2}
-          strokeOpacity={0.85}
-          fill="none"
-          markerEnd={`url(#arrow-${p.key})`}
-        />
-      ))}
-      {paths.map(
-        (p) =>
-          p.label && (
-            <g key={`l-${p.key}`} className="bp-board-overlay-label">
-              <rect
-                x={p.midX - approxLabelWidth(p.label) / 2 - 6}
-                y={p.midY - 9}
-                width={approxLabelWidth(p.label) + 12}
-                height={18}
-                rx={9}
-                ry={9}
-                fill="#0c0c0a"
-                stroke={p.color}
-                strokeOpacity={0.4}
-              />
-              <text
-                x={p.midX}
-                y={p.midY + 4}
-                textAnchor="middle"
-                fontSize={10}
-                fontFamily="monospace"
-                fill="#a8a79f"
-              >
-                {p.label}
-              </text>
-            </g>
-          )
-      )}
-    </svg>
   );
 }
 
@@ -653,25 +591,6 @@ function monogramFromName(name: string): string {
     .split(/\s+/)
     .filter(Boolean);
   if (words.length === 0) return "?";
-  if (words.length === 1) {
-    return words[0].slice(0, 2).toUpperCase();
-  }
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[1][0]).toUpperCase();
-}
-
-function approxLabelWidth(label: string): number {
-  // Rough monospace width — 6.2px/char at 10px size.
-  return label.length * 6.2;
-}
-
-/**
- * Look up a category's grid row/col from GRID_AREAS. Used by the
- * connection overlay to pick the right edges for routing.
- */
-function gridPos(key: string): [number, number] | null {
-  for (let r = 0; r < GRID_AREAS.length; r++) {
-    const c = GRID_AREAS[r].indexOf(key);
-    if (c >= 0) return [r, c];
-  }
-  return null;
 }
