@@ -36,10 +36,17 @@ export async function createAwsProject(formData: FormData) {
       )}`
     );
   }
-  if (ecrAccountId && !/^[0-9]{12}$/.test(ecrAccountId)) {
+  if (!ecrAccountId) {
     redirect(
       `/dashboard/connect/aws?error=${encodeURIComponent(
-        "AWS account ID must be 12 digits if provided."
+        "Your AWS account ID is required so StackLense can verify the connection."
+      )}`
+    );
+  }
+  if (!/^[0-9]{12}$/.test(ecrAccountId)) {
+    redirect(
+      `/dashboard/connect/aws?error=${encodeURIComponent(
+        "AWS account ID must be 12 digits."
       )}`
     );
   }

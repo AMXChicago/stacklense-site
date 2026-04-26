@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { maybeAutoVerify } from "@/lib/auto-verify";
 import {
@@ -59,6 +59,7 @@ type Project = {
   blueprint_error: string | null;
   blueprint_progress: BlueprintProgress | null;
   auto_verify_at: string | null;
+  aws_role_verified_at: string | null;
 };
 
 type BlueprintProgress = {
@@ -132,7 +133,7 @@ export default async function ProjectDetailPage({
   const supabase = createClient(cookieStore);
 
   const SELECT_COLS =
-    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at";
+    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at";
 
   const initialFetch = await supabase
     .from("projects")
@@ -151,21 +152,15 @@ export default async function ProjectDetailPage({
     .limit(10);
 
   // Auto-verify on first visit when no events have arrived yet. Replaces
-  // the manual "Send a test update" button as the primary path — the user
-  // doesn't need to do anything.
-  const h = await headers();
-  const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "stacklense.com";
-  const origin = `${proto}://${host}`;
-  const verifyResult = await maybeAutoVerify(
-    project,
-    deploys?.length ?? 0,
-    origin
-  );
+  // For AWS-connected projects: try AssumeRole to actively verify the
+  // CFN stack is up. If it succeeds, we mark the project verified and
+  // kick off blueprint generation. No synthetic events; no user action
+  // beyond creating the stack.
+  const verifyResult = await maybeAutoVerify(project);
 
-  // If we just fired a synthetic event, re-fetch to render the freshly
-  // updated state (status flipped from 'pending' to 'generating', a new
-  // deploy row was inserted).
+  // If we just kicked off generation, re-fetch to render the freshly
+  // updated state (status flipped from 'pending' to 'generating',
+  // aws_role_verified_at set).
   if (verifyResult.ran) {
     const refreshed = await supabase
       .from("projects")
@@ -203,7 +198,10 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
-      {project.blueprint_status === "generating" && <AutoRefresh />}
+      {(project.blueprint_status === "generating" ||
+        (!!project.ecr_aws_account_id && !project.aws_role_verified_at)) && (
+        <AutoRefresh />
+      )}
 
       {regeneratingFlash && (
         <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
@@ -376,19 +374,19 @@ type Stage = {
   status: StageStatus;
 };
 
-function computeStages(
-  project: Project,
-  deploys: Array<{ id: string }>
-): Stage[] {
+function computeStages(project: Project): Stage[] {
   const isGitHub = !!project.git_repo_full_name;
 
-  // "Connected" means StackLense is verified to be receiving signal from
-  // the project. For GitHub that's webhook-installed (we did it ourselves
-  // via API). For AWS we can't check directly, so we infer from any event
-  // having arrived.
+  // "Connected" means StackLense has verified the wiring works.
+  //   GitHub: webhook installed at connect time -> git_webhook_id present
+  //   AWS:    we successfully called sts:AssumeRole on the customer's
+  //           read-only role -> aws_role_verified_at set
+  //
+  // Neither relies on synthetic events or hand-typed facts. Both are
+  // active proof that the connection is live.
   const connected = isGitHub
     ? !!project.git_webhook_id
-    : deploys.length > 0;
+    : !!project.aws_role_verified_at;
   const blueprintReady = project.blueprint_status === "ready";
   const blueprintFailed = project.blueprint_status === "failed";
 
@@ -397,7 +395,7 @@ function computeStages(
     { key: "connected" as const, label: "Connected", done: connected, failed: false },
     {
       key: "live" as const,
-      label: "Live blueprint",
+      label: "Blueprint",
       done: blueprintReady,
       failed: blueprintFailed,
     },
@@ -425,7 +423,7 @@ function ProjectStatusPanel({
   deploys: Array<{ id: string; created_at: string }>;
   cfnUrl: string | null;
 }) {
-  const stages = computeStages(project, deploys);
+  const stages = computeStages(project);
   const active = stages.find((s) => s.status === "active");
   const failed = stages.find((s) => s.status === "failed");
   const allDone = stages.every((s) => s.status === "done");
@@ -484,20 +482,15 @@ function ProjectStatusPanel({
 
           {!failed && active?.key === "connected" && isEcr && (
             <>
-              <p className="status-action-headline">Two steps left:</p>
-              <ol className="status-action-steps">
-                <li>
-                  Click <strong>Open AWS setup</strong> below. In AWS, click{" "}
-                  <strong>Create stack</strong> (everything&rsquo;s
-                  pre-filled). Wait about a minute for it to finish.
-                </li>
-                <li>
-                  Ship a new version of your app — or click{" "}
-                  <strong>Send a test update</strong> to fake one.
-                </li>
-              </ol>
+              <p className="status-action-headline">One step left:</p>
               <p className="status-action-foot">
-                Your blueprint will go live automatically.
+                Click <strong>Open AWS setup</strong> below. In AWS, click{" "}
+                <strong>Create stack</strong> (everything&rsquo;s pre-filled).
+                When the stack reaches{" "}
+                <code className="aws-code">CREATE_COMPLETE</code>, refresh
+                this page — StackLense will detect the connection and build
+                your blueprint automatically. No test events, no manual
+                clicks.
               </p>
               <div className="status-buttons">
                 {cfnUrl && (
@@ -510,7 +503,6 @@ function ProjectStatusPanel({
                     Open AWS setup →
                   </a>
                 )}
-                <TestEventButton projectId={project.id} />
                 <Link
                   href={`/dashboard/${project.id}/setup-manual`}
                   className="bp-banner-link"

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createServerClient } from "@supabase/ssr";
-import { createHmac, randomBytes } from "crypto";
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+import { kickOffBlueprintGeneration } from "./blueprint";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
@@ -23,157 +24,107 @@ function adminClient() {
 type ProjectForAutoVerify = {
   id: string;
   blueprint_status: string;
-  auto_verify_at: string | null;
-  git_repo_full_name: string | null;
-  git_repo_id: number | null;
-  git_webhook_secret: string | null;
-  ecr_webhook_token: string | null;
-  ecr_repo_name: string | null;
+  aws_role_verified_at: string | null;
   ecr_aws_account_id: string | null;
+  ecr_webhook_token: string | null;
+  git_repo_full_name: string | null;
+  git_webhook_id: number | null;
 };
 
-const RETRY_WINDOW_MS = 3_600_000; // 1 hour
-const FIRE_TIMEOUT_MS = 5_000;
-
 /**
- * Fire a synthetic event automatically if a freshly-connected project hasn't
- * received anything yet. Replaces "user must click Send a test update" with
- * "page just works on first visit." Idempotent within an hour via the
- * auto_verify_at column.
+ * Active verification on every project page load.
+ *
+ * For AWS-connected projects: tries to assume the read-only role we expect
+ * the CFN stack to have created. If AssumeRole succeeds, we know the stack
+ * is live AND the trust policy is correct — so we mark the project as
+ * verified and kick off blueprint generation, which runs full discovery.
+ *
+ * For GitHub: webhook installation is already verified at connect time
+ * (we have git_webhook_id). No active check needed.
+ *
+ * Returns whether we kicked off generation, so the caller can re-fetch
+ * project state if needed.
  */
 export async function maybeAutoVerify(
-  project: ProjectForAutoVerify,
-  deploysCount: number,
-  origin: string
+  project: ProjectForAutoVerify
 ): Promise<{ ran: boolean; reason?: string }> {
-  const hasGitHub =
-    !!project.git_webhook_secret && !!project.git_repo_full_name;
-  const hasEcr = !!project.ecr_webhook_token;
-
-  if (!hasGitHub && !hasEcr) return { ran: false, reason: "no-source" };
-  if (deploysCount > 0) return { ran: false, reason: "has-events" };
-  if (project.blueprint_status !== "pending")
-    return { ran: false, reason: `status=${project.blueprint_status}` };
-  if (
-    project.auto_verify_at &&
-    Date.now() - new Date(project.auto_verify_at).getTime() < RETRY_WINDOW_MS
-  ) {
-    return { ran: false, reason: "recently-attempted" };
+  // Already produced a blueprint: nothing to do.
+  if (project.blueprint_status === "ready") {
+    return { ran: false, reason: "blueprint-ready" };
+  }
+  // Already generating: don't restart mid-flight.
+  if (project.blueprint_status === "generating") {
+    return { ran: false, reason: "already-generating" };
   }
 
-  // Mark attempted first to prevent retry storms across concurrent renders.
+  // GitHub-only: webhook is verified at connect time. Generation kicks off
+  // when the first push event fires our webhook handler. Nothing to do here.
+  if (
+    !project.ecr_aws_account_id &&
+    project.git_repo_full_name &&
+    project.git_webhook_id
+  ) {
+    return { ran: false, reason: "github-webhook-mode" };
+  }
+
+  // AWS path: must have account ID + token to even attempt verification.
+  if (!project.ecr_aws_account_id || !project.ecr_webhook_token) {
+    return { ran: false, reason: "missing-aws-fields" };
+  }
+
+  const result = await tryAssumeRole({
+    accountId: project.ecr_aws_account_id,
+    externalId: project.ecr_webhook_token,
+  });
+
+  if (!result.ok) {
+    // Role doesn't exist yet (CFN stack not created/updated) or trust
+    // policy doesn't match. Either way, we don't have ground to stand on.
+    return { ran: false, reason: result.reason };
+  }
+
+  // Role is live. Mark verified and kick off blueprint generation. The
+  // generator's collectSourceContext will run full discovery.
   const supabase = adminClient();
   await supabase
     .from("projects")
-    .update({ auto_verify_at: new Date().toISOString() })
+    .update({ aws_role_verified_at: new Date().toISOString() })
     .eq("id", project.id);
 
+  await kickOffBlueprintGeneration(project.id);
+  return { ran: true };
+}
+
+async function tryAssumeRole(args: {
+  accountId: string;
+  externalId: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const accessKeyId = process.env.STACKLENSE_AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.STACKLENSE_AWS_SECRET_ACCESS_KEY;
+  const region = process.env.STACKLENSE_AWS_REGION || "us-east-1";
+  if (!accessKeyId || !secretAccessKey) {
+    return { ok: false, reason: "no-stacklense-aws-creds" };
+  }
+
+  const roleArn = `arn:aws:iam::${args.accountId}:role/StackLense-ReadOnly-${args.accountId}`;
+  const sts = new STSClient({
+    region,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
   try {
-    if (hasGitHub) {
-      await fireGithubSyntheticEvent({
-        origin,
-        repoFullName: project.git_repo_full_name!,
-        repoId: project.git_repo_id ?? 0,
-        webhookSecret: project.git_webhook_secret!,
-      });
-    } else if (hasEcr) {
-      await fireEcrSyntheticEvent({
-        origin,
-        token: project.ecr_webhook_token!,
-        accountId: project.ecr_aws_account_id ?? "000000000000",
-        repoName: project.ecr_repo_name ?? "stacklense-test",
-      });
-    }
-    return { ran: true };
+    const r = await sts.send(
+      new AssumeRoleCommand({
+        RoleArn: roleArn,
+        RoleSessionName: `stacklense-verify-${Date.now()}`,
+        ExternalId: args.externalId,
+        DurationSeconds: 900,
+      })
+    );
+    if (!r.Credentials) return { ok: false, reason: "no-credentials" };
+    return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[auto-verify] synthetic event fire failed: ${msg}`);
-    return { ran: false, reason: `fire-failed:${msg}` };
+    return { ok: false, reason: msg };
   }
-}
-
-async function fireWithTimeout(
-  url: string,
-  init: RequestInit
-): Promise<Response> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), FIRE_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
-
-async function fireGithubSyntheticEvent(args: {
-  origin: string;
-  repoFullName: string;
-  repoId: number;
-  webhookSecret: string;
-}) {
-  const url = `${args.origin}/api/webhooks/github`;
-  const payload = {
-    ref: "refs/heads/main",
-    repository: { full_name: args.repoFullName, id: args.repoId },
-    head_commit: {
-      id: randomBytes(20).toString("hex"),
-      message: "stacklense: auto-verify",
-      timestamp: new Date().toISOString(),
-      author: {
-        name: "StackLense",
-        email: "noreply@stacklense.com",
-      },
-    },
-  };
-  const rawBody = JSON.stringify(payload);
-  const sig =
-    "sha256=" +
-    createHmac("sha256", args.webhookSecret).update(rawBody).digest("hex");
-
-  await fireWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-GitHub-Event": "push",
-      "X-Hub-Signature-256": sig,
-      "X-StackLense-Synthetic": "auto-verify",
-    },
-    body: rawBody,
-  });
-}
-
-async function fireEcrSyntheticEvent(args: {
-  origin: string;
-  token: string;
-  accountId: string;
-  repoName: string;
-}) {
-  const url = `${args.origin}/api/webhooks/aws/${args.token}`;
-  const payload = {
-    version: "0",
-    id: `stacklense-auto-verify-${randomBytes(8).toString("hex")}`,
-    "detail-type": "ECR Image Action",
-    source: "aws.ecr",
-    account: args.accountId,
-    time: new Date().toISOString(),
-    region: "us-east-1",
-    resources: [],
-    detail: {
-      "action-type": "PUSH",
-      result: "SUCCESS",
-      "repository-name": args.repoName,
-      "image-tag": "stacklense-auto-verify",
-      "image-digest": `sha256:${randomBytes(32).toString("hex")}`,
-    },
-  };
-
-  await fireWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-StackLense-Token": args.token,
-      "X-StackLense-Synthetic": "auto-verify",
-    },
-    body: JSON.stringify(payload),
-  });
 }
