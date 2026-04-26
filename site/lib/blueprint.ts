@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServerClient } from "@supabase/ssr";
 import { waitUntil } from "@vercel/functions";
 import { blueprintFailedEmail, sendEmail } from "./email";
+import { discoverAwsResources, discoveryToPromptText } from "./aws-discovery";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
@@ -117,7 +118,7 @@ async function generateBlueprint(projectId: string) {
     const { data: project, error } = await supabase
       .from("projects")
       .select(
-        "id, name, description, notes, git_host, git_repo_full_name, ecr_aws_account_id, ecr_repo_name"
+        "id, name, description, notes, git_host, git_repo_full_name, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token"
       )
       .eq("id", projectId)
       .single();
@@ -220,6 +221,7 @@ type ProjectRow = {
   git_repo_full_name: string | null;
   ecr_aws_account_id: string | null;
   ecr_repo_name: string | null;
+  ecr_webhook_token: string | null;
 };
 
 /**
@@ -235,12 +237,36 @@ async function collectSourceContext(project: ProjectRow): Promise<string> {
     chunks.push(`Description: ${project.description}\n`);
   }
 
-  // User-provided facts. These are CRITICAL — the user is telling us things
-  // the source code can't reveal (AI tools, registrar, hosting platform,
-  // confirmed product choices). Trust them over inference.
+  // AWS discovery — for projects connected via ECR, assume the cross-account
+  // read role and enumerate real resources. This is StackLense's PRIMARY
+  // source of truth: we tell the customer what their stack looks like, not
+  // the other way around.
+  if (project.ecr_aws_account_id && project.ecr_webhook_token) {
+    chunks.push(
+      `## What StackLense observed in your AWS account (read-only inspection)\n`
+    );
+    const discovery = await discoverAwsResources({
+      accountId: project.ecr_aws_account_id,
+      externalId: project.ecr_webhook_token,
+    });
+    if ("ok" in discovery && discovery.ok === false) {
+      chunks.push(
+        `(AWS discovery failed: ${discovery.reason}. ` +
+          `If the read-only role isn't installed yet, the customer should ` +
+          `update their CloudFormation stack to the latest template.)\n`
+      );
+    } else if ("account_id" in discovery) {
+      chunks.push(discoveryToPromptText(discovery));
+      chunks.push("");
+    }
+  }
+
+  // Optional notes column — kept as a tier-3 fallback for things discovery
+  // genuinely can't see (legacy projects with hand-typed context). Not
+  // surfaced as a primary user-input path.
   if (project.notes && project.notes.trim()) {
     chunks.push(
-      `## Confirmed facts the user has told us about this project\n\nThese are authoritative — do not contradict them in the blueprint.\n\n${project.notes.trim()}\n`
+      `## Additional context\n\n${project.notes.trim()}\n`
     );
   }
 
