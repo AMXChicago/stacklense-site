@@ -302,67 +302,213 @@ async function fetchPublicGitHubFile(
   }
 }
 
-const SYSTEM_PROMPT = `You are StackLense, an architecture documentation generator. Given source files and metadata for a project, produce a structured JSON blueprint that captures the architecture, decisions, security posture, and risks.
+/**
+ * Canonical 12-category schema. Every blueprint has all 12 entries (empty
+ * components is valid — "we looked, didn't find any" is data). Keeping the
+ * shape consistent across projects makes the visual rendering predictable.
+ */
+const CATEGORIES: Array<{ key: string; label: string; description: string }> = [
+  {
+    key: "ai_dev_tools",
+    label: "AI & dev tools",
+    description:
+      "AI coding agents, IDE plugins, and config files (CLAUDE.md, AGENTS.md, .cursorrules)",
+  },
+  {
+    key: "source_control",
+    label: "Source code",
+    description: "Where the code lives (GitHub, GitLab, Bitbucket)",
+  },
+  {
+    key: "application_stack",
+    label: "Application stack",
+    description: "Framework, language, runtime (Next.js, FastAPI, Rails, Node, Python, etc.)",
+  },
+  {
+    key: "hosting_compute",
+    label: "Hosting & compute",
+    description:
+      "Where the app runs (Vercel, Fly, Railway, AWS ECS/Lambda, GCP, Cloudflare Workers, etc.)",
+  },
+  {
+    key: "data_storage",
+    label: "Data & storage",
+    description: "Databases, object storage, caches (Supabase, Postgres, S3, R2, Redis)",
+  },
+  {
+    key: "authentication",
+    label: "Authentication",
+    description: "Auth provider and methods (Supabase Auth, Auth0, Clerk, magic links, OAuth)",
+  },
+  {
+    key: "communications",
+    label: "Communications",
+    description: "Email, SMS, push (Resend, AWS SES, SendGrid, Twilio, Postmark)",
+  },
+  {
+    key: "domains_dns",
+    label: "Domains & DNS",
+    description: "Registrar and DNS provider (GoDaddy, Cloudflare, Route 53, Namecheap)",
+  },
+  {
+    key: "payments",
+    label: "Payments",
+    description: "Payment processor and billing (Stripe, Paddle, Lemon Squeezy)",
+  },
+  {
+    key: "observability",
+    label: "Observability",
+    description: "Logs, error tracking, analytics (Sentry, PostHog, Datadog, CloudWatch)",
+  },
+  {
+    key: "security_secrets",
+    label: "Security & secrets",
+    description: "WAF, secret store, certs, IAM (Secrets Manager, WAF, Let's Encrypt)",
+  },
+  {
+    key: "ci_cd",
+    label: "CI/CD",
+    description:
+      "How code gets deployed (GitHub Actions, Vercel auto-deploy, manual scripts, CircleCI)",
+  },
+];
 
-Your output MUST be valid JSON matching this shape:
+const SYSTEM_PROMPT = `You are StackLense's analysis engine. Given source files and metadata about a software project, produce a complete, end-to-end blueprint of how the project is built — from AI tools used during development through infrastructure to domain registrar and payment processor.
+
+The audience for the blueprint is mixed: vibe-coder founders with limited technical knowledge, AND experienced engineers. Your descriptions should be plain-English first; specifics and citations are for evidence.
+
+Your output MUST be valid JSON matching this exact shape (no trailing commas, no comments, no markdown fences):
 
 {
-  "summary": "2-3 sentence plain-English overview of what this app is and how it's built",
-  "services": [
-    { "name": "string", "kind": "frontend|api|database|queue|cache|storage|cdn|auth|email|other", "description": "string", "evidence": "string (where you saw it)" }
+  "summary": "1-2 sentences a non-technical reader can understand. What is this project, and what's the headline of how it's built?",
+  "categories": [
+    {
+      "key": "ai_dev_tools" | "source_control" | "application_stack" | "hosting_compute" | "data_storage" | "authentication" | "communications" | "domains_dns" | "payments" | "observability" | "security_secrets" | "ci_cd",
+      "label": "string (use the exact label from the category list)",
+      "components": [
+        {
+          "id": "lowercase-slug-unique-per-blueprint",
+          "name": "Display name (e.g., 'Vercel', 'AWS ECS Fargate', 'Resend')",
+          "vendor": "Company or platform name (e.g., 'Vercel', 'Amazon Web Services', 'Resend')",
+          "description": "1-2 plain-English sentences a non-technical user can understand.",
+          "evidence": "Where you detected it. File paths, config snippets, or domain names. Concrete.",
+          "console_url": "Direct link the user clicks to manage this in the vendor's UI. Use deep links when you can infer the project ID/slug; otherwise root dashboard. Example: https://supabase.com/dashboard/project/xxxxxxx for a specific Supabase project."
+        }
+      ]
+    }
   ],
-  "data_flows": [
-    { "from": "service name", "to": "service name", "what": "description of what flows" }
+  "connections": [
+    { "from": "<component id>", "to": "<component id>", "label": "Short description of how data/control flows (e.g., 'auto-deploys', 'reads from', 'sends email via')" }
   ],
   "decisions": [
-    { "title": "string", "category": "arch|infra|security|data|ops", "risk": "low|medium|high", "rationale": "why this choice was made (inferred or explicit)", "evidence": "string" }
+    { "title": "Short title", "category": "arch" | "infra" | "security" | "data" | "ops", "risk": "low" | "medium" | "high", "rationale": "Why this choice was made (inferred or explicit)", "evidence": "What you saw to support this" }
   ],
-  "security_flags": [
-    { "title": "string", "severity": "info|low|medium|high|critical", "description": "string", "remediation": "string" }
-  ],
-  "open_questions": [
-    "things you couldn't determine from the source"
+  "risks": [
+    { "title": "Short title", "severity": "info" | "low" | "medium" | "high" | "critical", "description": "What's wrong or risky in plain English", "remediation": "What to do about it" }
   ]
 }
 
-Rules:
-- Output JSON ONLY. No prose before or after.
-- Be specific: cite file paths and line patterns in "evidence".
-- "open_questions" should be empty if you have enough info; otherwise list specific gaps.
-- Don't invent services or decisions; only include what the source supports.`;
+REQUIRED RULES:
+
+1. INCLUDE ALL 12 CATEGORIES, even if empty. An empty category has \`"components": []\`. Don't skip.
+
+2. The 12 category keys (in this order) and labels are:
+   - ai_dev_tools         "AI & dev tools"
+   - source_control       "Source code"
+   - application_stack    "Application stack"
+   - hosting_compute      "Hosting & compute"
+   - data_storage         "Data & storage"
+   - authentication       "Authentication"
+   - communications       "Communications"
+   - domains_dns          "Domains & DNS"
+   - payments             "Payments"
+   - observability        "Observability"
+   - security_secrets     "Security & secrets"
+   - ci_cd                "CI/CD"
+
+3. console_url examples — deep-link when possible:
+   - Vercel:   https://vercel.com/dashboard
+   - GitHub:   https://github.com/<full_name>
+   - Supabase: https://supabase.com/dashboard/project/<ref> (or root if no ref)
+   - AWS console: https://console.aws.amazon.com/<service>/home?region=<region>
+   - Stripe:   https://dashboard.stripe.com
+   - Resend:   https://resend.com/domains/<domain>
+   - GoDaddy:  https://dcc.godaddy.com/domains
+   - Cloudflare: https://dash.cloudflare.com
+   If you cannot infer a sensible URL, omit the field.
+
+4. Don't invent components. Only include what the source supports. If you only see hints (e.g., a Stripe webhook URL but no SDK import), still include it but note in evidence it was inferred.
+
+5. Plain English in descriptions. No jargon unless necessary. Write for someone who knows what an app is but not what an EventBridge rule is.
+
+6. Output JSON ONLY. No prose, no markdown fences. The first character must be \`{\` and the last must be \`}\`.`;
 
 async function callClaude(
   project: ProjectRow,
   sourceContext: string
 ): Promise<unknown> {
-  const userPrompt = `Generate a blueprint for the following project.\n\n${sourceContext}`;
+  const userPrompt = `Generate a complete blueprint for the following project. Include all 12 categories.\n\n${sourceContext}`;
 
   const message = await anthropic.messages.create({
     model: BLUEPRINT_MODEL,
-    max_tokens: 8192,
+    max_tokens: 12000,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }],
   });
 
-  // Extract text content
   const textBlock = message.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude returned no text content");
+    throw new Error("Analysis engine returned no text content");
   }
   const raw = textBlock.text.trim();
 
-  // Strip ```json fences if Claude wrapped despite instructions
   const json = raw
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/i, "");
 
   try {
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    return ensureAllCategories(parsed);
   } catch (e) {
     throw new Error(
-      `Claude returned invalid JSON: ${
+      `Analysis returned invalid JSON: ${
         e instanceof Error ? e.message : String(e)
       }\n\nFirst 500 chars: ${raw.slice(0, 500)}`
     );
   }
+}
+
+/**
+ * Belt-and-suspenders: even if the model omits a category despite the prompt,
+ * pad the output to the canonical 12 so the renderer always sees a uniform
+ * shape.
+ */
+function ensureAllCategories(parsed: unknown): unknown {
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("categories" in parsed) ||
+    !Array.isArray((parsed as { categories: unknown }).categories)
+  ) {
+    return parsed;
+  }
+  const obj = parsed as {
+    categories: Array<{ key?: string; label?: string; components?: unknown[] }>;
+  };
+  const seen = new Map<string, (typeof obj.categories)[number]>();
+  for (const c of obj.categories) {
+    if (c && typeof c.key === "string") seen.set(c.key, c);
+  }
+  obj.categories = CATEGORIES.map((spec) => {
+    const existing = seen.get(spec.key);
+    if (existing) {
+      return {
+        key: spec.key,
+        label: spec.label,
+        components: Array.isArray(existing.components) ? existing.components : [],
+      };
+    }
+    return { key: spec.key, label: spec.label, components: [] };
+  });
+  return obj;
 }

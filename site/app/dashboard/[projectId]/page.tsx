@@ -66,29 +66,44 @@ type BlueprintProgress = {
   started_at: string;
 };
 
+type BlueprintComponent = {
+  id: string;
+  name: string;
+  vendor?: string;
+  description: string;
+  evidence?: string;
+  console_url?: string;
+};
+
+type BlueprintCategory = {
+  key: string;
+  label: string;
+  components: BlueprintComponent[];
+};
+
 type BlueprintShape = {
   summary?: string;
-  services?: Array<{
-    name: string;
-    kind: string;
-    description: string;
-    evidence: string;
-  }>;
-  data_flows?: Array<{ from: string; to: string; what: string }>;
+  // New shape (categorized)
+  categories?: BlueprintCategory[];
+  connections?: Array<{ from: string; to: string; label?: string }>;
   decisions?: Array<{
     title: string;
     category: string;
     risk: string;
     rationale: string;
-    evidence: string;
+    evidence?: string;
   }>;
-  security_flags?: Array<{
+  risks?: Array<{
     title: string;
     severity: string;
     description: string;
-    remediation: string;
+    remediation?: string;
   }>;
-  open_questions?: string[];
+  // Legacy shape — kept for backward compat during transition
+  services?: unknown;
+  data_flows?: unknown;
+  security_flags?: unknown;
+  open_questions?: unknown;
 };
 
 export default async function ProjectDetailPage({
@@ -599,9 +614,9 @@ function TestEventButton({ projectId }: { projectId: string }) {
 }
 
 const STAGE_COPY: Record<BlueprintProgress["stage"], string> = {
-  starting: "Getting started…",
-  reading_sources: "Reading your project sources…",
-  asking_claude: "Asking Claude to build the blueprint…",
+  starting: "Warming up the lens…",
+  reading_sources: "Scanning your project sources…",
+  asking_claude: "StackLense is analyzing your stack…",
   finalizing: "Saving your blueprint…",
 };
 
@@ -657,54 +672,40 @@ function BlueprintView({ project }: { project: Project }) {
       <div className="project-empty">
         <p>
           {project.blueprint_status === "generating"
-            ? "Generating now — your blueprint will appear here."
+            ? "Building now — your blueprint will appear here."
             : project.blueprint_status === "failed"
-            ? "Blueprint generation failed. See the Status panel above for the error and a regenerate button."
-            : "Blueprint will be generated when your first event arrives. See the Status panel above to track progress."}
+            ? "We couldn't build the blueprint. See the Status panel above for the error and a regenerate button."
+            : "Your blueprint will appear when your first update arrives. Track progress in the Status panel above."}
         </p>
       </div>
     );
   }
 
   const bp = project.blueprint;
+  const isLegacyShape =
+    !bp.categories && (bp.services || bp.security_flags || bp.data_flows);
+
+  if (isLegacyShape) {
+    return (
+      <div className="project-empty">
+        <p>
+          This blueprint was built with an older format. Click{" "}
+          <strong>Regenerate blueprint</strong> in the Status panel above to
+          rebuild it in the new format.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="bp-content">
       {bp.summary && <p className="bp-summary">{bp.summary}</p>}
 
-      {bp.services && bp.services.length > 0 && (
-        <div className="bp-block">
-          <h3 className="bp-h3">Services</h3>
-          <ul className="bp-list">
-            {bp.services.map((s, i) => (
-              <li key={i} className="bp-item">
-                <div className="bp-item-head">
-                  <span className="bp-item-name">{s.name}</span>
-                  <span className="bp-item-tag">{s.kind}</span>
-                </div>
-                <p className="bp-item-desc">{s.description}</p>
-                {s.evidence && (
-                  <p className="bp-evidence">Evidence: {s.evidence}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {bp.data_flows && bp.data_flows.length > 0 && (
-        <div className="bp-block">
-          <h3 className="bp-h3">Data flows</h3>
-          <ul className="bp-list">
-            {bp.data_flows.map((f, i) => (
-              <li key={i} className="bp-item">
-                <code className="bp-flow">
-                  {f.from} → {f.to}
-                </code>
-                <p className="bp-item-desc">{f.what}</p>
-              </li>
-            ))}
-          </ul>
+      {bp.categories && bp.categories.length > 0 && (
+        <div className="bp-categories">
+          {bp.categories.map((cat) => (
+            <BlueprintCategoryBlock key={cat.key} category={cat} />
+          ))}
         </div>
       )}
 
@@ -729,11 +730,11 @@ function BlueprintView({ project }: { project: Project }) {
         </div>
       )}
 
-      {bp.security_flags && bp.security_flags.length > 0 && (
+      {bp.risks && bp.risks.length > 0 && (
         <div className="bp-block">
-          <h3 className="bp-h3">Security flags</h3>
+          <h3 className="bp-h3">Risks</h3>
           <ul className="bp-list">
-            {bp.security_flags.map((f, i) => (
+            {bp.risks.map((f, i) => (
               <li key={i} className="bp-item">
                 <div className="bp-item-head">
                   <span className="bp-item-name">{f.title}</span>
@@ -751,19 +752,6 @@ function BlueprintView({ project }: { project: Project }) {
         </div>
       )}
 
-      {bp.open_questions && bp.open_questions.length > 0 && (
-        <div className="bp-block">
-          <h3 className="bp-h3">Open questions</h3>
-          <ul className="bp-list">
-            {bp.open_questions.map((q, i) => (
-              <li key={i} className="bp-item bp-item-question">
-                {q}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {project.blueprint_generated_at && (
         <p className="bp-foot">
           Generated{" "}
@@ -772,6 +760,50 @@ function BlueprintView({ project }: { project: Project }) {
             timeStyle: "short",
           })}
         </p>
+      )}
+    </div>
+  );
+}
+
+function BlueprintCategoryBlock({
+  category,
+}: {
+  category: BlueprintCategory;
+}) {
+  const empty = !category.components || category.components.length === 0;
+  return (
+    <div className={`bp-cat ${empty ? "bp-cat-empty" : ""}`}>
+      <h3 className="bp-cat-label">{category.label}</h3>
+      {empty ? (
+        <p className="bp-cat-empty-text">Not detected</p>
+      ) : (
+        <ul className="bp-cat-list">
+          {category.components.map((c) => (
+            <li key={c.id} className="bp-cat-item">
+              <div className="bp-cat-item-head">
+                {c.console_url ? (
+                  <a
+                    href={c.console_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bp-cat-item-name"
+                  >
+                    {c.name} ↗
+                  </a>
+                ) : (
+                  <span className="bp-cat-item-name">{c.name}</span>
+                )}
+                {c.vendor && c.vendor !== c.name && (
+                  <span className="bp-cat-item-vendor">{c.vendor}</span>
+                )}
+              </div>
+              <p className="bp-cat-item-desc">{c.description}</p>
+              {c.evidence && (
+                <p className="bp-evidence">Detected: {c.evidence}</p>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
