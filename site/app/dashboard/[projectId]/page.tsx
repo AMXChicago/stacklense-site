@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { maybeAutoVerify } from "@/lib/auto-verify";
 import {
   updateProject,
   regenerateBlueprint,
@@ -41,7 +42,9 @@ type Project = {
   connected_at: string;
   git_host: string | null;
   git_repo_full_name: string | null;
+  git_repo_id: number | null;
   git_webhook_id: number | null;
+  git_webhook_secret: string | null;
   ecr_aws_account_id: string | null;
   ecr_repo_name: string | null;
   ecr_webhook_token: string | null;
@@ -49,6 +52,7 @@ type Project = {
   blueprint_status: "pending" | "generating" | "ready" | "failed";
   blueprint_generated_at: string | null;
   blueprint_error: string | null;
+  auto_verify_at: string | null;
 };
 
 type BlueprintShape = {
@@ -97,22 +101,58 @@ export default async function ProjectDetailPage({
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
-  const { data: project, error } = await supabase
+  const SELECT_COLS =
+    "id, name, description, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, auto_verify_at";
+
+  const initialFetch = await supabase
     .from("projects")
-    .select(
-      "id, name, description, connected_at, git_host, git_repo_full_name, git_webhook_id, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error"
-    )
+    .select(SELECT_COLS)
     .eq("id", projectId)
     .single<Project>();
 
-  if (error || !project) notFound();
+  if (initialFetch.error || !initialFetch.data) notFound();
+  let project: Project = initialFetch.data;
 
-  const { data: deploys } = await supabase
+  let { data: deploys } = await supabase
     .from("deploys")
     .select("id, image_tag, deploy_note, created_at, source_type")
     .eq("project_id", project.id)
     .order("created_at", { ascending: false })
     .limit(10);
+
+  // Auto-verify on first visit when no events have arrived yet. Replaces
+  // the manual "Send a test update" button as the primary path — the user
+  // doesn't need to do anything.
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("host") ?? "stacklense.com";
+  const origin = `${proto}://${host}`;
+  const verifyResult = await maybeAutoVerify(
+    project,
+    deploys?.length ?? 0,
+    origin
+  );
+
+  // If we just fired a synthetic event, re-fetch to render the freshly
+  // updated state (status flipped from 'pending' to 'generating', a new
+  // deploy row was inserted).
+  if (verifyResult.ran) {
+    const refreshed = await supabase
+      .from("projects")
+      .select(SELECT_COLS)
+      .eq("id", projectId)
+      .single<Project>();
+    if (refreshed.data) project = refreshed.data;
+    const refreshedDeploys = await supabase
+      .from("deploys")
+      .select("id, image_tag, deploy_note, created_at, source_type")
+      .eq("project_id", project!.id)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (refreshedDeploys.data) deploys = refreshedDeploys.data;
+  }
+
+  if (!project) notFound();
 
   const hasGitHub = !!project.git_repo_full_name;
   const hasEcr = !!project.ecr_webhook_token;
