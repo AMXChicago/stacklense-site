@@ -12,16 +12,10 @@
       "Bash",
       "Bash(*)",
       "PowerShell",
-      "PowerShell(*)"
+      "PowerShell(*)",
+      "mcp__*"
     ],
-    "deny": [
-      "Bash(supabase project delete*)",
-      "PowerShell(supabase project delete*)",
-      "Bash(vercel project rm*)",
-      "PowerShell(vercel project rm*)",
-      "Bash(vercel domains rm*)",
-      "PowerShell(vercel domains rm*)"
-    ]
+    "deny": []
   },
   "hooks": {
     "Stop": [
