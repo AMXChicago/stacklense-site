@@ -36,6 +36,7 @@ import {
   compareTemplateVersion,
   summarizeDiscoveryErrors,
   type DiscoveryErrorSummary,
+  type ParsedDiscoveryError,
 } from "@/lib/cfn";
 
 type Props = {
@@ -99,10 +100,9 @@ export function AwsConnectionPanel(props: Props) {
         </div>
 
         {/*
-          When the blueprint is generating, that means a discovery run is
-          in flight (either auto, or kicked off by Test connection). Show
-          this inline so the customer doesn't have to look up at the top
-          Status panel to know something's happening.
+          When the blueprint is generating, a discovery run is in flight
+          (auto, or just kicked off by Test connection). Show this inline
+          so the customer has feedback right where they clicked.
          */}
         {props.blueprintStatus === "generating" && (
           <div className="aws-conn-flash aws-conn-flash-running">
@@ -112,11 +112,26 @@ export function AwsConnectionPanel(props: Props) {
             The page refreshes automatically.
           </div>
         )}
+        {/*
+          Only show the "Connection healthy" flash if the connection is
+          actually healthy. AssumeRole succeeding is necessary but not
+          sufficient — if discovery still has permission gaps, the flash
+          contradicts the panel's primary state and confuses the customer.
+         */}
         {props.blueprintStatus !== "generating" &&
-          props.lastTestResult === "ok" && (
+          props.lastTestResult === "ok" &&
+          state === "healthy" && (
             <div className="aws-conn-flash aws-conn-flash-ok">
               ✓ Connection healthy. We assumed the read-only role and
-              re-ran discovery — see the result below.
+              re-ran discovery successfully.
+            </div>
+          )}
+        {props.blueprintStatus !== "generating" &&
+          props.lastTestResult === "ok" &&
+          state !== "healthy" && (
+            <div className="aws-conn-flash aws-conn-flash-warn">
+              We assumed the read-only role, but discovery still hit
+              issues. See <em>Action required</em> below.
             </div>
           )}
         {props.lastTestResult === "fail" && (
@@ -130,35 +145,13 @@ export function AwsConnectionPanel(props: Props) {
           </div>
         )}
 
-        <ConnectionGuidance
+        <ActionRequiredOrSummary
           state={state}
           errSummary={errSummary}
-          versionState={versionState}
+          manageUrl={manageUrl}
+          iamUrl={iamUrl}
+          projectId={props.projectId}
         />
-
-        <div className="aws-conn-actions">
-          <TestConnectionButton projectId={props.projectId} />
-
-          <a
-            href={manageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="status-secondary-btn"
-          >
-            {state === "stack-outdated" || state === "permission-gap"
-              ? "Update AWS connection →"
-              : "Manage stack in AWS →"}
-          </a>
-
-          <a
-            href={iamUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="status-secondary-btn"
-          >
-            View IAM role →
-          </a>
-        </div>
 
         {(state === "stack-outdated" || state === "permission-gap") && (
           <UpdateInstructions
@@ -302,98 +295,207 @@ function ConnectionMeta({
   );
 }
 
-function ConnectionGuidance({
+/**
+ * Top-of-panel action card. The single source of truth for "what should
+ * the customer do next?". Each state owns:
+ *   - A plain-English headline saying what's wrong (or that nothing is)
+ *   - One sentence of context
+ *   - A primary CTA — the ONE button that solves it
+ *   - Compact secondary actions for power-user paths
+ *
+ * No raw AWS strings, no overlapping flashes, no decision-making left to
+ * the customer. They scan the headline, click the primary button.
+ */
+function ActionRequiredOrSummary({
   state,
   errSummary,
-  versionState,
+  manageUrl,
+  iamUrl,
+  projectId,
 }: {
   state: ConnectionState;
   errSummary: DiscoveryErrorSummary;
-  versionState: "current" | "outdated" | "unknown";
+  manageUrl: string;
+  iamUrl: string;
+  projectId: string;
 }) {
   if (state === "healthy") {
-    return null;
-  }
-
-  if (state === "stack-outdated") {
-    const newest = CFN_TEMPLATE_CHANGELOG[0];
     return (
-      <div className="aws-conn-guidance">
-        <p>
-          <strong>StackLense shipped a newer connection template.</strong>{" "}
-          Updating takes ~30 seconds and adds the new permissions below.
-          Until you update, blueprints will keep working but won&rsquo;t
-          reflect the new services.
-        </p>
-        {newest && (
-          <p className="aws-conn-guidance-changelog">
-            <strong>What&rsquo;s new ({newest.date}):</strong>{" "}
-            {newest.summary}
+      <div className="aws-conn-action aws-conn-action-ok">
+        <div className="aws-conn-action-body">
+          <h3 className="aws-conn-action-title">Everything looks good</h3>
+          <p className="aws-conn-action-copy">
+            StackLense can read your AWS account and discovery completed
+            without errors. Blueprints will refresh automatically on every
+            push.
           </p>
-        )}
+        </div>
+        <div className="aws-conn-action-buttons">
+          <TestConnectionButton projectId={projectId} />
+          <a
+            href={manageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="status-secondary-btn"
+          >
+            Manage stack in AWS →
+          </a>
+          <a
+            href={iamUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="status-secondary-btn"
+          >
+            View IAM role →
+          </a>
+        </div>
       </div>
     );
   }
 
-  if (state === "permission-gap") {
-    // Show the failing service names in the headline so the customer
-    // doesn't have to expand the error list to see what's broken. Dedupe
-    // and pretty-print to a comma list.
+  if (state === "permission-gap" || state === "stack-outdated") {
+    // Plain-English service list — what's broken, not what AWS error
+    // codes say. Customer reads "ACM, SNS, ..." not "acm:ListCertificates".
     const failingServices = Array.from(
       new Set(errSummary.accessDenied.map((e) => prettyServiceName(e.source)))
     );
+    const hasGap = state === "permission-gap";
+    const newest = CFN_TEMPLATE_CHANGELOG[0];
     return (
-      <div className="aws-conn-guidance">
-        <p>
-          <strong>
-            We assumed the role but couldn&rsquo;t read{" "}
-            {errSummary.accessDenied.length} AWS service
-            {errSummary.accessDenied.length === 1 ? "" : "s"}:
-          </strong>{" "}
-          {failingServices.join(", ")}.
-        </p>
-        <p>
-          The most common cause is a CloudFormation stack that hasn&rsquo;t
-          been updated since StackLense added new discovery permissions.
-          Click <strong>Update AWS connection</strong> below — and if
-          you&rsquo;ve already updated and still see this, expand{" "}
-          <em>Last discovery had errors</em> for the verbatim AWS error
-          messages.
-        </p>
+      <div className="aws-conn-action aws-conn-action-warn">
+        <div className="aws-conn-action-body">
+          <h3 className="aws-conn-action-title">
+            Action required — update your AWS stack
+          </h3>
+          {hasGap ? (
+            <>
+              <p className="aws-conn-action-copy">
+                We can connect to your AWS account but can&rsquo;t read{" "}
+                <strong>
+                  {failingServices.length} service
+                  {failingServices.length === 1 ? "" : "s"}
+                </strong>{" "}
+                yet:
+              </p>
+              <ul className="aws-conn-chip-list">
+                {failingServices.map((s) => (
+                  <li key={s} className="aws-conn-chip aws-conn-chip-warn">
+                    {s}
+                  </li>
+                ))}
+              </ul>
+              <p className="aws-conn-action-copy">
+                These services are read by permissions that were added to
+                StackLense&rsquo;s connection template recently. One stack
+                update grants them all.
+              </p>
+            </>
+          ) : (
+            <p className="aws-conn-action-copy">
+              StackLense shipped a newer connection template. Updating
+              takes ~60 seconds and is one paste in AWS Console.
+              {newest && (
+                <>
+                  {" "}
+                  <span className="aws-conn-action-meta">
+                    What&rsquo;s new: {newest.summary}
+                  </span>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        <div className="aws-conn-action-buttons">
+          <a
+            href={manageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="aws-action-btn aws-action-btn-primary"
+          >
+            Update AWS connection →
+          </a>
+          <TestConnectionButton projectId={projectId} />
+          <a
+            href={iamUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="status-secondary-btn"
+          >
+            View IAM role →
+          </a>
+        </div>
       </div>
     );
   }
 
   if (state === "broken") {
     return (
-      <div className="aws-conn-guidance">
-        <p>
-          <strong>StackLense can&rsquo;t assume the read-only role.</strong>{" "}
-          Common causes: the CloudFormation stack was deleted, the trust
-          policy was edited, or the WebhookToken parameter was changed.
-          Click <strong>Test connection</strong> to retry, or{" "}
-          <strong>Manage stack in AWS</strong> to inspect.
-        </p>
+      <div className="aws-conn-action aws-conn-action-err">
+        <div className="aws-conn-action-body">
+          <h3 className="aws-conn-action-title">
+            We can&rsquo;t connect to your AWS account
+          </h3>
+          <p className="aws-conn-action-copy">
+            StackLense couldn&rsquo;t assume the read-only role. The most
+            common reasons:
+          </p>
+          <ul className="aws-conn-cause-list">
+            <li>The CloudFormation stack was deleted or renamed.</li>
+            <li>
+              Someone edited the role&rsquo;s trust policy and removed
+              StackLense from it.
+            </li>
+            <li>The WebhookToken parameter was changed.</li>
+          </ul>
+        </div>
+        <div className="aws-conn-action-buttons">
+          <TestConnectionButton projectId={projectId} />
+          <a
+            href={manageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="status-secondary-btn"
+          >
+            Manage stack in AWS →
+          </a>
+          <a
+            href={iamUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="status-secondary-btn"
+          >
+            View IAM role →
+          </a>
+        </div>
       </div>
     );
   }
 
   // not-verified
   return (
-    <div className="aws-conn-guidance">
-      <p>
-        <strong>Waiting on the CloudFormation stack to come up.</strong>{" "}
-        Once <code className="aws-code">CREATE_COMPLETE</code> shows in
-        AWS, click <strong>Test connection</strong> below — or just
-        refresh, we auto-verify on every page load.
-        {versionState === "unknown" && (
-          <>
-            {" "}
-            (We&rsquo;ll record your installed template version on the
-            first successful verification.)
-          </>
-        )}
-      </p>
+    <div className="aws-conn-action aws-conn-action-pending">
+      <div className="aws-conn-action-body">
+        <h3 className="aws-conn-action-title">
+          Waiting for your CloudFormation stack
+        </h3>
+        <p className="aws-conn-action-copy">
+          Finish the install in AWS — once the stack reaches{" "}
+          <code className="aws-code">CREATE_COMPLETE</code>, refresh this
+          page and we&rsquo;ll auto-verify. You can also click{" "}
+          <strong>Test connection</strong> to check on demand.
+        </p>
+      </div>
+      <div className="aws-conn-action-buttons">
+        <TestConnectionButton projectId={projectId} />
+        <a
+          href={manageUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="status-secondary-btn"
+        >
+          Manage stack in AWS →
+        </a>
+      </div>
     </div>
   );
 }
@@ -515,49 +617,124 @@ function DiscoveryErrorList({
   return (
     <details className="aws-conn-errors" open={defaultOpen}>
       <summary>
-        Last discovery had {summary.total} error
-        {summary.total === 1 ? "" : "s"}
-        {summary.accessDenied.length > 0 && (
-          <>
-            {" "}
-            — {summary.accessDenied.length} permission gap
-            {summary.accessDenied.length === 1 ? "" : "s"}
-          </>
-        )}
+        Diagnostics — what AWS told us
       </summary>
-      {summary.accessDenied.length > 0 && (
-        <>
-          <p className="aws-conn-errors-label">
-            Permission gaps (fixed by updating the CFN stack):
-          </p>
-          <ul className="aws-conn-errors-list">
-            {summary.accessDenied.map((e, i) => (
-              <li key={`ad-${i}`} className="aws-conn-errors-row">
-                <strong className="aws-conn-errors-source">
-                  {prettyServiceName(e.source)}
-                </strong>
-                <span className="aws-conn-errors-msg">{e.message}</span>
-              </li>
-            ))}
-          </ul>
-        </>
+
+      {summary.hasPermissionGap && (
+        <AlreadyUpdatedFAQ />
       )}
-      {summary.other.length > 0 && (
-        <>
-          <p className="aws-conn-errors-label">Other errors:</p>
-          <ul className="aws-conn-errors-list">
-            {summary.other.map((e, i) => (
-              <li key={`o-${i}`} className="aws-conn-errors-row">
-                <strong className="aws-conn-errors-source">
-                  {prettyServiceName(e.source)}
-                </strong>
-                <span className="aws-conn-errors-msg">{e.message}</span>
-              </li>
+
+      {summary.accessDenied.length > 0 && (
+        <div className="aws-conn-errors-block">
+          <p className="aws-conn-errors-label">
+            Permission gaps ({summary.accessDenied.length})
+          </p>
+          <div className="aws-conn-error-cards">
+            {summary.accessDenied.map((e, i) => (
+              <ErrorCard key={`ad-${i}`} error={e} />
             ))}
-          </ul>
-        </>
+          </div>
+        </div>
+      )}
+
+      {summary.other.length > 0 && (
+        <div className="aws-conn-errors-block">
+          <p className="aws-conn-errors-label">
+            Other errors ({summary.other.length})
+          </p>
+          <div className="aws-conn-error-cards">
+            {summary.other.map((e, i) => (
+              <ErrorCard key={`o-${i}`} error={e} />
+            ))}
+          </div>
+        </div>
       )}
     </details>
+  );
+}
+
+/**
+ * Single error rendered as a structured card. Three rows of info that
+ * line up across the list — service name on top (always present), the
+ * IAM action when we could parse one (the actionable bit), and a "Show
+ * raw AWS error" disclosure for debugging. Customer can scan the
+ * service name + action and skip the raw text entirely.
+ */
+function ErrorCard({ error }: { error: ParsedDiscoveryError }) {
+  return (
+    <div
+      className={`aws-conn-error-card ${
+        error.isPermissionGap ? "aws-conn-error-card-warn" : ""
+      }`}
+    >
+      <div className="aws-conn-error-card-head">
+        <span className="aws-conn-error-card-service">
+          {prettyServiceName(error.source)}
+        </span>
+        {error.iamAction && (
+          <span className="aws-conn-error-card-action">
+            IAM action:{" "}
+            <code className="aws-code">{error.iamAction.full}</code>
+          </span>
+        )}
+        <span
+          className={`aws-conn-error-card-tag ${
+            error.isPermissionGap
+              ? "aws-conn-error-card-tag-warn"
+              : "aws-conn-error-card-tag-info"
+          }`}
+        >
+          {error.isPermissionGap ? "missing permission" : "other error"}
+        </span>
+      </div>
+      <details className="aws-conn-error-card-raw">
+        <summary>Show raw AWS message</summary>
+        <pre className="aws-conn-error-card-pre">{error.message}</pre>
+      </details>
+    </div>
+  );
+}
+
+/**
+ * Mini-FAQ surfaced inside the diagnostics drawer. Addresses the
+ * specific "I just updated my stack and the panel still says permission
+ * gap, what gives?" scenario — the most common reason permission errors
+ * persist after a customer believes they updated.
+ */
+function AlreadyUpdatedFAQ() {
+  return (
+    <div className="aws-conn-faq">
+      <p className="aws-conn-faq-title">
+        I already updated my stack — why is it still failing?
+      </p>
+      <p className="aws-conn-faq-line">
+        99% of the time, one of these:
+      </p>
+      <ol className="aws-conn-faq-list">
+        <li>
+          On the <strong>Prepare template</strong> screen you picked{" "}
+          <em>Use existing template</em> instead of{" "}
+          <em>Replace existing template</em> — so the new IAM policy
+          never got applied. Run the update again with the right
+          option.
+        </li>
+        <li>
+          The update is still in progress. CloudFormation says{" "}
+          <code className="aws-code">UPDATE_IN_PROGRESS</code> for ~30
+          seconds; only when it shows{" "}
+          <code className="aws-code">UPDATE_COMPLETE</code> are the new
+          permissions live.
+        </li>
+        <li>
+          You created a change set but didn&rsquo;t execute it. Open the
+          stack and look for an unexecuted change set under the{" "}
+          <em>Change sets</em> tab.
+        </li>
+      </ol>
+      <p className="aws-conn-faq-line">
+        Then click <strong>Test connection</strong> to re-check.
+      </p>
+    </div>
   );
 }
 

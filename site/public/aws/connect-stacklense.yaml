@@ -228,17 +228,19 @@ Resources:
                   - events:ListEventBuses
                   - events:DescribeEventBus
                 Resource: "*"
-              # SES — verified identities + configuration sets (no message content)
+              # SES — verified identities + configuration sets (no message content).
+              # NOTE: Both the v1 SES API and the v2 SESv2 API use the `ses:`
+              # IAM service prefix. There is NO `sesv2:` IAM namespace —
+              # actions like ListEmailIdentities/GetEmailIdentity are still
+              # `ses:ListEmailIdentities` etc. for IAM purposes.
               - Effect: Allow
                 Action:
                   - ses:ListIdentities
+                  - ses:ListEmailIdentities
                   - ses:ListConfigurationSets
                   - ses:GetIdentityVerificationAttributes
                   - ses:GetConfigurationSet
-                  - sesv2:ListEmailIdentities
-                  - sesv2:ListConfigurationSets
-                  - sesv2:GetEmailIdentity
-                  - sesv2:GetConfigurationSet
+                  - ses:GetEmailIdentity
                 Resource: "*"
               # ACM — certificates (no private key access)
               - Effect: Allow

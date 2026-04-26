@@ -31,8 +31,11 @@
  *   2026-04-26-v1-base                — initial template, ECR + ECS + S3 + …
  *   2026-04-26-v2-discovery-expansion — added SES, WAF, ACM, EventBridge
  *                                       buses, SNS, SQS, Cognito read perms
+ *   2026-04-26-v3-ses-iam-fix         — fixed SES v2 IAM action namespace
+ *                                       (sesv2:* doesn't exist; v2 actions
+ *                                       are namespaced under ses:* in IAM)
  */
-export const CFN_TEMPLATE_VERSION = "2026-04-26-v2-discovery-expansion";
+export const CFN_TEMPLATE_VERSION = "2026-04-26-v3-ses-iam-fix";
 
 /**
  * Short, customer-facing changelog rendered in the "Update available"
@@ -44,6 +47,12 @@ export const CFN_TEMPLATE_CHANGELOG: Array<{
   date: string;
   summary: string;
 }> = [
+  {
+    version: "2026-04-26-v3-ses-iam-fix",
+    date: "Apr 26, 2026",
+    summary:
+      "Fixes the SES v2 IAM action prefix so transactional-email identities can actually be discovered. (Cosmetic IAM fix — re-update if your stack was created on v2.)",
+  },
   {
     version: "2026-04-26-v2-discovery-expansion",
     date: "Apr 26, 2026",
@@ -147,11 +156,33 @@ export function compareTemplateVersion(
  * permissions for a service we now try to read. Returns the per-service
  * breakdown so the UI can both show the count and explain what's missing.
  */
+export type ParsedIamAction = {
+  /** Full IAM action, lowercased: e.g., "acm:listcertificates" */
+  full: string;
+  /** Service prefix, lowercased: e.g., "acm" */
+  service: string;
+  /** Action name, original case if available: e.g., "ListCertificates" */
+  action: string;
+};
+
+export type ParsedDiscoveryError = {
+  /** The internal source key the error was tagged with — "ses-identities", "acm", etc. */
+  source: string;
+  /** Verbatim message for power-user reference. */
+  message: string;
+  /** True if the message looks like an IAM AccessDenied. */
+  isPermissionGap: boolean;
+  /** Parsed IAM action when the message names one — e.g., {service:"acm", action:"ListCertificates"} */
+  iamAction?: ParsedIamAction;
+};
+
 export type DiscoveryErrorSummary = {
   total: number;
-  accessDenied: Array<{ source: string; message: string }>;
-  other: Array<{ source: string; message: string }>;
+  accessDenied: ParsedDiscoveryError[];
+  other: ParsedDiscoveryError[];
   hasPermissionGap: boolean;
+  /** All distinct IAM actions that were denied, deduped + sorted. */
+  deniedIamActions: ParsedIamAction[];
 };
 
 /**
@@ -169,25 +200,75 @@ const PERMISSION_GAP_PATTERNS: RegExp[] = [
   /\bmissingauthenticationtoken\b/i, // edge case
 ];
 
+/**
+ * Extract the IAM action that AWS named in the error, if any. AWS error
+ * messages are structurally consistent — they always say "is not
+ * authorized to perform: SERVICE:ACTION" (occasionally "perform action"
+ * or with surrounding ARN context). Returns undefined if no action can
+ * be extracted.
+ */
+export function parseIamActionFromMessage(
+  message: string
+): ParsedIamAction | undefined {
+  if (!message) return undefined;
+  // Patterns observed in AWS SDK errors:
+  //   "is not authorized to perform: acm:ListCertificates because..."
+  //   "is not authorized to perform: SNS:ListTopics on resource:..."
+  //   "no identity-based policy allows the acm:ListCertificates action"
+  const patterns = [
+    /not\s+authori[sz]ed\s+to\s+perform:\s+([a-z0-9-]+):([A-Za-z0-9_-]+)/i,
+    /policy\s+allows\s+the\s+([a-z0-9-]+):([A-Za-z0-9_-]+)\s+action/i,
+  ];
+  for (const re of patterns) {
+    const m = message.match(re);
+    if (m) {
+      return {
+        full: `${m[1].toLowerCase()}:${m[2].toLowerCase()}`,
+        service: m[1].toLowerCase(),
+        action: m[2],
+      };
+    }
+  }
+  return undefined;
+}
+
 export function summarizeDiscoveryErrors(
   errors: Array<{ source: string; message: string }> | null | undefined
 ): DiscoveryErrorSummary {
   const list = errors ?? [];
-  const accessDenied: Array<{ source: string; message: string }> = [];
-  const other: Array<{ source: string; message: string }> = [];
+  const accessDenied: ParsedDiscoveryError[] = [];
+  const other: ParsedDiscoveryError[] = [];
   for (const err of list) {
     const msg = err.message ?? "";
     const isPermGap = PERMISSION_GAP_PATTERNS.some((p) => p.test(msg));
+    const parsed: ParsedDiscoveryError = {
+      source: err.source,
+      message: msg,
+      isPermissionGap: isPermGap,
+      iamAction: parseIamActionFromMessage(msg),
+    };
     if (isPermGap) {
-      accessDenied.push(err);
+      accessDenied.push(parsed);
     } else {
-      other.push(err);
+      other.push(parsed);
     }
   }
+  // Dedupe by full action name so a service that fails twice under the
+  // same denied action only shows once in the summary.
+  const seen = new Set<string>();
+  const deniedIamActions: ParsedIamAction[] = [];
+  for (const e of accessDenied) {
+    if (e.iamAction && !seen.has(e.iamAction.full)) {
+      seen.add(e.iamAction.full);
+      deniedIamActions.push(e.iamAction);
+    }
+  }
+  deniedIamActions.sort((a, b) => a.full.localeCompare(b.full));
   return {
     total: list.length,
     accessDenied,
     other,
     hasPermissionGap: accessDenied.length > 0,
+    deniedIamActions,
   };
 }
