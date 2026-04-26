@@ -57,10 +57,43 @@ export async function kickOffBlueprintGeneration(projectId: string) {
   // Mark generating up-front so the dashboard reflects state immediately.
   await supabase
     .from("projects")
-    .update({ blueprint_status: "generating", blueprint_error: null })
+    .update({
+      blueprint_status: "generating",
+      blueprint_error: null,
+      blueprint_progress: {
+        stage: "starting",
+        started_at: new Date().toISOString(),
+      },
+    })
     .eq("id", projectId);
 
   waitUntil(generateBlueprint(projectId));
+}
+
+/**
+ * Update the visible phase of in-flight generation so the user sees real
+ * progress instead of a fake countdown. `started_at` from the kickoff is
+ * preserved so elapsed time keeps ticking.
+ */
+async function setProgressStage(
+  projectId: string,
+  stage: "starting" | "reading_sources" | "asking_claude" | "finalizing"
+) {
+  const supabase = adminClient();
+  const { data } = await supabase
+    .from("projects")
+    .select("blueprint_progress")
+    .eq("id", projectId)
+    .single();
+  const startedAt =
+    (data?.blueprint_progress as { started_at?: string } | null)?.started_at ??
+    new Date().toISOString();
+  await supabase
+    .from("projects")
+    .update({
+      blueprint_progress: { stage, started_at: startedAt },
+    })
+    .eq("id", projectId);
 }
 
 /**
@@ -90,9 +123,13 @@ async function generateBlueprint(projectId: string) {
       .single();
     if (error || !project) throw new Error(error?.message ?? "project not found");
 
+    await setProgressStage(projectId, "reading_sources");
     const sourceContext = await collectSourceContext(project);
+
+    await setProgressStage(projectId, "asking_claude");
     const blueprint = await callClaude(project, sourceContext);
 
+    await setProgressStage(projectId, "finalizing");
     await supabase
       .from("projects")
       .update({
@@ -100,6 +137,7 @@ async function generateBlueprint(projectId: string) {
         blueprint_status: "ready",
         blueprint_generated_at: new Date().toISOString(),
         blueprint_error: null,
+        blueprint_progress: null,
       })
       .eq("id", projectId);
   } catch (e) {
@@ -113,6 +151,7 @@ async function generateBlueprint(projectId: string) {
       .update({
         blueprint_status: "failed",
         blueprint_error: message,
+        blueprint_progress: null,
       })
       .eq("id", projectId);
 

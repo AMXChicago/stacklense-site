@@ -9,6 +9,7 @@ import {
   sendTestEvent,
 } from "./actions";
 import { DeleteProjectButton } from "./DeleteProjectButton";
+import { AutoRefresh } from "./AutoRefresh";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
@@ -52,7 +53,17 @@ type Project = {
   blueprint_status: "pending" | "generating" | "ready" | "failed";
   blueprint_generated_at: string | null;
   blueprint_error: string | null;
+  blueprint_progress: BlueprintProgress | null;
   auto_verify_at: string | null;
+};
+
+type BlueprintProgress = {
+  stage:
+    | "starting"
+    | "reading_sources"
+    | "asking_claude"
+    | "finalizing";
+  started_at: string;
 };
 
 type BlueprintShape = {
@@ -102,7 +113,7 @@ export default async function ProjectDetailPage({
   const supabase = createClient(cookieStore);
 
   const SELECT_COLS =
-    "id, name, description, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, auto_verify_at";
+    "id, name, description, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at";
 
   const initialFetch = await supabase
     .from("projects")
@@ -173,13 +184,15 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
+      {project.blueprint_status === "generating" && <AutoRefresh />}
+
       {regeneratingFlash && (
         <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
       )}
       {testSentFlash && (
         <div className="dash-flash">
-          ✓ Test update sent. Refresh in a few seconds to see it in your
-          history and your blueprint rebuild.
+          ✓ Test update sent. Watching for the result — page updates
+          automatically.
         </div>
       )}
 
@@ -492,10 +505,7 @@ function ProjectStatusPanel({
           {!failed &&
             active?.key === "live" &&
             project.blueprint_status === "generating" && (
-              <p className="status-action-text">
-                <span className="bp-spinner" /> Building your blueprint right
-                now — usually 15–30 seconds. This page refreshes automatically.
-              </p>
+              <ProgressView progress={project.blueprint_progress} />
             )}
 
           {!failed &&
@@ -586,6 +596,47 @@ function TestEventButton({ projectId }: { projectId: string }) {
       </button>
     </form>
   );
+}
+
+const STAGE_COPY: Record<BlueprintProgress["stage"], string> = {
+  starting: "Getting started…",
+  reading_sources: "Reading your project sources…",
+  asking_claude: "Asking Claude to build the blueprint…",
+  finalizing: "Saving your blueprint…",
+};
+
+function ProgressView({ progress }: { progress: BlueprintProgress | null }) {
+  const stage = progress?.stage ?? "starting";
+  const startedAt = progress?.started_at ?? null;
+  const elapsedSec = startedAt
+    ? Math.max(
+        0,
+        Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+      )
+    : null;
+  const stageLabel = STAGE_COPY[stage] ?? "Working…";
+
+  return (
+    <>
+      <p className="status-action-text">
+        <span className="bp-spinner" /> {stageLabel}
+        {elapsedSec !== null && (
+          <span className="status-elapsed"> · {formatDuration(elapsedSec)}</span>
+        )}
+      </p>
+      <p className="status-action-foot">
+        Most blueprints take 30–90 seconds. Page updates automatically — no
+        need to refresh.
+      </p>
+    </>
+  );
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
 }
 
 function formatRelative(iso: string): string {
