@@ -1723,3 +1723,171 @@ footer {
   line-height: 1.7;
   margin: 12px 0;
 }
+
+/* ============================================================================
+   PROJECT STATUS TIMELINE
+   ============================================================================ */
+
+.status-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 36px;
+}
+
+.status-timeline {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin: 0 0 28px;
+  padding: 0;
+  position: relative;
+}
+
+.status-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding: 0 8px;
+}
+
+/* Connector line — drawn from each step's center to the next step's center.
+   Sits behind the dots (z-index) so dots appear "on" the line. */
+.status-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 18px; /* matches dot vertical center (dot height 36 / 2) */
+  left: calc(50% + 18px); /* start at right edge of dot */
+  right: calc(-50% + 18px);
+  height: 2px;
+  background: var(--border2);
+  z-index: 0;
+}
+
+/* Connector colored green when the source step is "done" */
+.status-step.status-step-done:not(:last-child)::after {
+  background: var(--green);
+}
+/* And amber when active is the next step (we don't have direct "active line" — keep border2) */
+
+.status-step-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px solid var(--border2);
+  background: var(--bg);
+  color: var(--ink3);
+  margin-bottom: 12px;
+  z-index: 1;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.status-step-done .status-step-dot {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0c0c0a;
+}
+
+.status-step-active .status-step-dot {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: var(--amber);
+  color: var(--amber);
+  animation: status-pulse 1.6s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45); }
+  50%       { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+}
+
+.status-step-failed .status-step-dot {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.status-step-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  text-align: center;
+}
+.status-step-done .status-step-label {
+  color: var(--ink2);
+}
+.status-step-active .status-step-label {
+  color: var(--ink);
+}
+.status-step-failed .status-step-label {
+  color: var(--red);
+}
+
+.status-action {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+  margin-top: 8px;
+}
+
+.status-action-text {
+  font-size: 14px;
+  color: var(--ink2);
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+.status-action-text strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.status-action-failed {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.status-buttons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.status-secondary-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 16px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink2);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.status-secondary-btn:hover {
+  background: var(--bg3);
+  color: var(--ink);
+  border-color: var(--ink3);
+}
+
+@media (max-width: 640px) {
+  .status-card { padding: 24px 20px; }
+  .status-timeline { gap: 0; }
+  .status-step { padding: 0 4px; }
+  .status-step-label { font-size: 10px; }
+  .status-step:not(:last-child)::after {
+    left: calc(50% + 14px);
+    right: calc(-50% + 14px);
+  }
+  .status-step-dot { width: 32px; height: 32px; font-size: 12px; }
+  .status-step:not(:last-child)::after { top: 16px; }
+}

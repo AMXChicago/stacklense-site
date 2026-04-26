@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
-import { updateProject } from "./actions";
+import {
+  updateProject,
+  regenerateBlueprint,
+  sendTestEvent,
+} from "./actions";
 import { DeleteProjectButton } from "./DeleteProjectButton";
 
 export const dynamic = "force-dynamic";
@@ -77,12 +81,19 @@ export default async function ProjectDetailPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>;
-  searchParams: Promise<{ error?: string; saved?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    saved?: string;
+    regenerating?: string;
+    test_sent?: string;
+  }>;
 }) {
   const { projectId } = await params;
   const sp = await searchParams;
   const errorMsg = sp.error ? decodeURIComponent(sp.error) : null;
   const savedFlash = !!sp.saved;
+  const regeneratingFlash = !!sp.regenerating;
+  const testSentFlash = !!sp.test_sent;
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
@@ -122,7 +133,21 @@ export default async function ProjectDetailPage({
         )}
       </div>
 
-      <BlueprintStatusBanner project={project} cfnUrl={cfnUrl} />
+      {regeneratingFlash && (
+        <div className="dash-flash">⟳ Regenerating blueprint…</div>
+      )}
+      {testSentFlash && (
+        <div className="dash-flash">
+          ✓ Test event sent. Refresh in a few seconds to see the deploy row +
+          blueprint regenerate.
+        </div>
+      )}
+
+      <ProjectStatusPanel
+        project={project}
+        deploys={deploys ?? []}
+        cfnUrl={cfnUrl}
+      />
 
       <section className="project-section">
         <h2 className="dash-h2">Connection</h2>
@@ -271,75 +296,216 @@ export default async function ProjectDetailPage({
   );
 }
 
-function BlueprintStatusBanner({
+type StageStatus = "done" | "active" | "pending" | "failed";
+
+type Stage = {
+  key: "created" | "connected" | "first_event" | "ready";
+  label: string;
+  status: StageStatus;
+};
+
+function computeStages(
+  project: Project,
+  deploys: Array<{ id: string }>
+): Stage[] {
+  const isGitHub = !!project.git_repo_full_name;
+
+  // GitHub: we know wiring is done if we have a webhook ID.
+  // AWS: we can't verify CFN stack creation directly — infer from receiving an event.
+  const wired = isGitHub
+    ? !!project.git_webhook_id
+    : deploys.length > 0;
+  const hasEvent = deploys.length > 0;
+  const blueprintReady = project.blueprint_status === "ready";
+  const blueprintFailed = project.blueprint_status === "failed";
+
+  const raw = [
+    { key: "created" as const, label: "Created", done: true, failed: false },
+    { key: "connected" as const, label: "Connected", done: wired, failed: false },
+    { key: "first_event" as const, label: "First event", done: hasEvent, failed: false },
+    {
+      key: "ready" as const,
+      label: "Blueprint ready",
+      done: blueprintReady,
+      failed: blueprintFailed,
+    },
+  ];
+
+  // First non-done stage is "active"; everything after is "pending" (unless failed).
+  let foundActive = false;
+  return raw.map((s): Stage => {
+    let status: StageStatus;
+    if (s.failed) status = "failed";
+    else if (s.done) status = "done";
+    else if (!foundActive) {
+      status = "active";
+      foundActive = true;
+    } else status = "pending";
+    return { key: s.key, label: s.label, status };
+  });
+}
+
+function ProjectStatusPanel({
   project,
+  deploys,
   cfnUrl,
 }: {
   project: Project;
+  deploys: Array<{ id: string; created_at: string }>;
   cfnUrl: string | null;
 }) {
-  const status = project.blueprint_status;
-  const hasEcrButNoEvents =
-    !!project.ecr_webhook_token &&
-    !project.git_repo_full_name &&
-    status === "pending";
+  const stages = computeStages(project, deploys);
+  const active = stages.find((s) => s.status === "active");
+  const failed = stages.find((s) => s.status === "failed");
+  const allDone = stages.every((s) => s.status === "done");
+  const isGitHub = !!project.git_repo_full_name;
+  const isEcr = !!project.ecr_webhook_token;
+  const lastDeploy = deploys[0];
 
-  if (hasEcrButNoEvents && cfnUrl) {
-    return (
-      <div className="bp-banner bp-banner-action">
-        <div className="bp-banner-title">One step left — install the rule</div>
-        <p className="bp-banner-desc">
-          Click below to open AWS CloudFormation with everything pre-filled.
-          After you click <strong>Create stack</strong>, the next ECR push
-          will trigger your first blueprint here automatically.
-        </p>
-        <div className="bp-banner-actions">
-          <a
-            href={cfnUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="aws-action-btn"
-          >
-            Open CloudFormation in AWS →
-          </a>
-          <Link
-            href={`/dashboard/${project.id}/setup-manual`}
-            className="bp-banner-link"
-          >
-            Set up manually instead →
-          </Link>
+  return (
+    <section className="project-section">
+      <div className="status-card">
+        <ol className="status-timeline">
+          {stages.map((s, i) => (
+            <li
+              key={s.key}
+              className={`status-step status-step-${s.status}`}
+              data-step={i + 1}
+            >
+              <div className="status-step-dot">
+                {s.status === "done" && "✓"}
+                {s.status === "failed" && "!"}
+                {(s.status === "active" || s.status === "pending") && i + 1}
+              </div>
+              <div className="status-step-label">{s.label}</div>
+            </li>
+          ))}
+        </ol>
+
+        <div className="status-action">
+          {failed && (
+            <>
+              <p className="status-action-text status-action-failed">
+                <strong>Blueprint generation failed.</strong>{" "}
+                {project.blueprint_error ?? "Unknown error."}
+              </p>
+              <div className="status-buttons">
+                <RegenerateButton projectId={project.id} />
+              </div>
+            </>
+          )}
+
+          {!failed && active?.key === "connected" && isEcr && (
+            <>
+              <p className="status-action-text">
+                Open CloudFormation to install the EventBridge rule in your
+                AWS account. Once a real or test event arrives, this step
+                marks complete automatically.
+              </p>
+              <div className="status-buttons">
+                {cfnUrl && (
+                  <a
+                    href={cfnUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="aws-action-btn"
+                  >
+                    Open CloudFormation →
+                  </a>
+                )}
+                <Link
+                  href={`/dashboard/${project.id}/setup-manual`}
+                  className="bp-banner-link"
+                >
+                  Set up manually →
+                </Link>
+                <TestEventButton projectId={project.id} />
+              </div>
+            </>
+          )}
+
+          {!failed && active?.key === "first_event" && (
+            <>
+              <p className="status-action-text">
+                {isGitHub
+                  ? "Webhook installed on your repo. Push a commit to trigger your first blueprint."
+                  : "Wiring is in place. Push to ECR — or use the test button below to verify the webhook end-to-end."}
+              </p>
+              <div className="status-buttons">
+                {isGitHub && project.git_repo_full_name && (
+                  <a
+                    href={`https://github.com/${project.git_repo_full_name}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bp-banner-link"
+                  >
+                    Open repo →
+                  </a>
+                )}
+                {isEcr && <TestEventButton projectId={project.id} />}
+              </div>
+            </>
+          )}
+
+          {!failed && active?.key === "ready" && (
+            <p className="status-action-text">
+              <span className="bp-spinner" /> Event received. Generating
+              blueprint with Claude — usually 15–30 seconds. This page
+              auto-refreshes.
+            </p>
+          )}
+
+          {allDone && (
+            <>
+              <p className="status-action-text">
+                ✓ Project is fully connected.{" "}
+                {lastDeploy &&
+                  `Last event ${formatRelative(lastDeploy.created_at)}.`}
+              </p>
+              <div className="status-buttons">
+                <RegenerateButton projectId={project.id} />
+                {isEcr && <TestEventButton projectId={project.id} />}
+              </div>
+            </>
+          )}
         </div>
       </div>
-    );
-  }
+    </section>
+  );
+}
 
-  if (status === "generating") {
-    return (
-      <div className="bp-banner bp-banner-generating">
-        <div className="bp-banner-title">
-          <span className="bp-spinner" /> Blueprint generating…
-        </div>
-        <p className="bp-banner-desc">
-          Claude is analyzing your sources. This page auto-refreshes every few
-          seconds.
-        </p>
-      </div>
-    );
-  }
+function RegenerateButton({ projectId }: { projectId: string }) {
+  return (
+    <form action={regenerateBlueprint}>
+      <input type="hidden" name="project_id" value={projectId} />
+      <button type="submit" className="status-secondary-btn">
+        Regenerate blueprint
+      </button>
+    </form>
+  );
+}
 
-  if (status === "failed") {
-    return (
-      <div className="bp-banner bp-banner-failed">
-        <div className="bp-banner-title">Blueprint generation failed</div>
-        <p className="bp-banner-desc">
-          {project.blueprint_error ??
-            "Unknown error. We'll retry on your next push."}
-        </p>
-      </div>
-    );
-  }
+function TestEventButton({ projectId }: { projectId: string }) {
+  return (
+    <form action={sendTestEvent}>
+      <input type="hidden" name="project_id" value={projectId} />
+      <button type="submit" className="status-secondary-btn">
+        Send test event
+      </button>
+    </form>
+  );
+}
 
-  return null;
+function formatRelative(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.round(hr / 24);
+  return `${days}d ago`;
 }
 
 function BlueprintView({ project }: { project: Project }) {
@@ -350,8 +516,8 @@ function BlueprintView({ project }: { project: Project }) {
           {project.blueprint_status === "generating"
             ? "Generating now — your blueprint will appear here."
             : project.blueprint_status === "failed"
-            ? "Blueprint failed. The error is in the banner above."
-            : "Blueprint will be generated when your first deploy event arrives, or right after you connect a GitHub repo."}
+            ? "Blueprint generation failed. See the Status panel above for the error and a regenerate button."
+            : "Blueprint will be generated when your first event arrives. See the Status panel above to track progress."}
         </p>
       </div>
     );
