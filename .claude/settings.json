@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Edit",
       "Write",
@@ -8,7 +9,9 @@
       "Grep",
       "NotebookEdit",
       "TodoWrite",
+      "Bash",
       "Bash(*)",
+      "PowerShell",
       "PowerShell(*)"
     ],
     "deny": [
