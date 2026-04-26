@@ -439,20 +439,12 @@ function ConnectionOverlay({
 }) {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [paths, setPaths] = useState<ResolvedPath[]>([]);
-  const [enabled, setEnabled] = useState(true);
 
   const measure = () => {
     const c = containerRef.current;
     if (!c) return;
     const cb = c.getBoundingClientRect();
     setSize({ w: cb.width, h: cb.height });
-
-    // The overlay only makes visual sense when the grid is in its
-    // 4-column form (where cards have predictable positions and
-    // there's space between them for paths to weave). At narrower
-    // widths the grid stacks linearly and the paths add noise rather
-    // than signal — so we hide ourselves.
-    setEnabled(cb.width >= 1100);
 
     const next: ResolvedPath[] = [];
     for (const conn of connections) {
@@ -462,42 +454,75 @@ function ConnectionOverlay({
       const fb = fromEl.getBoundingClientRect();
       const tb = toEl.getBoundingClientRect();
 
-      // Use card centres relative to the container. Endpoints land
-      // inside the cards, but the SVG sits BEHIND the cards in the
-      // stacking order — so the visible part of each path is just
-      // the segment between the cards.
-      const fx = fb.left + fb.width / 2 - cb.left;
-      const fy = fb.top + fb.height / 2 - cb.top;
-      const tx = tb.left + tb.width / 2 - cb.left;
-      const ty = tb.top + tb.height / 2 - cb.top;
+      // Card centres in container-relative coords.
+      const fcx = fb.left + fb.width / 2 - cb.left;
+      const fcy = fb.top + fb.height / 2 - cb.top;
+      const tcx = tb.left + tb.width / 2 - cb.left;
+      const tcy = tb.top + tb.height / 2 - cb.top;
 
-      // Cubic bezier control points pulled along the dominant axis
-      // for a soft S-curve. Use 0.45 of the distance along the axis.
-      const dx = tx - fx;
-      const dy = ty - fy;
-      const useHorizontal = Math.abs(dx) >= Math.abs(dy);
+      // Route the path from one card EDGE to the other card EDGE
+      // (rather than centre-to-centre) so the entire path lives in
+      // the gap between cards and doesn't depend on z-index or
+      // opaque backgrounds to hide a portion behind a card. The
+      // dominant axis between the two cards' centres picks which
+      // edges to use.
+      const dx = tcx - fcx;
+      const dy = tcy - fcy;
+      let fx: number, fy: number, tx: number, ty: number;
+      let curveAxis: "h" | "v";
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        curveAxis = "h";
+        if (dx > 0) {
+          fx = fb.right - cb.left;
+          fy = fcy;
+          tx = tb.left - cb.left;
+          ty = tcy;
+        } else {
+          fx = fb.left - cb.left;
+          fy = fcy;
+          tx = tb.right - cb.left;
+          ty = tcy;
+        }
+      } else {
+        curveAxis = "v";
+        if (dy > 0) {
+          fx = fcx;
+          fy = fb.bottom - cb.top;
+          tx = tcx;
+          ty = tb.top - cb.top;
+        } else {
+          fx = fcx;
+          fy = fb.top - cb.top;
+          tx = tcx;
+          ty = tb.bottom - cb.top;
+        }
+      }
+
+      // Bezier control points pulled along the curve's dominant axis
+      // for a soft S-curve.
       let c1x: number, c1y: number, c2x: number, c2y: number;
-      if (useHorizontal) {
-        c1x = fx + dx * 0.45;
+      if (curveAxis === "h") {
+        const span = tx - fx;
+        c1x = fx + span * 0.5;
         c1y = fy;
-        c2x = tx - dx * 0.45;
+        c2x = tx - span * 0.5;
         c2y = ty;
       } else {
+        const span = ty - fy;
         c1x = fx;
-        c1y = fy + dy * 0.45;
+        c1y = fy + span * 0.5;
         c2x = tx;
-        c2y = ty - dy * 0.45;
+        c2y = ty - span * 0.5;
       }
 
       const d = `M ${fx} ${fy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`;
 
-      // Mid-point along the bezier (rough approx — the geometric
-      // midpoint between control midpoints) for the label.
-      const midX = (fx + tx + c1x + c2x) / 4;
-      const midY = (fy + ty + c1y + c2y) / 4;
+      // Approx midpoint (true bezier midpoint at t=0.5).
+      const midX = 0.125 * fx + 0.375 * c1x + 0.375 * c2x + 0.125 * tx;
+      const midY = 0.125 * fy + 0.375 * c1y + 0.375 * c2y + 0.125 * ty;
 
       const color =
-        CATEGORY_FRIENDLY[conn.to]?.color ?? "rgba(255,255,255,0.4)";
+        CATEGORY_FRIENDLY[conn.to]?.color ?? "rgba(255,255,255,0.6)";
 
       next.push({
         key: `${conn.from}->${conn.to}`,
@@ -511,7 +536,9 @@ function ConnectionOverlay({
     setPaths(next);
   };
 
-  // Use useLayoutEffect so we measure after layout but before paint.
+  // useLayoutEffect runs after refs are set & DOM is laid out but
+  // before paint — gives us correct geometry on the first render
+  // without flicker.
   useLayoutEffect(() => {
     measure();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,7 +557,7 @@ function ConnectionOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!enabled || size.w === 0) return null;
+  if (size.w === 0 || paths.length === 0) return null;
 
   return (
     <svg
@@ -561,8 +588,8 @@ function ConnectionOverlay({
           key={p.key}
           d={p.d}
           stroke={p.color}
-          strokeWidth={1.6}
-          strokeOpacity={0.55}
+          strokeWidth={2.2}
+          strokeOpacity={0.85}
           fill="none"
           markerEnd={`url(#arrow-${p.key})`}
         />

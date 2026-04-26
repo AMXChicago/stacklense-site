@@ -1,12 +1,18 @@
 /**
- * Best-effort mapping from vendor name to a domain Clearbit's Logo API
- * recognises. We use Clearbit because it's free, requires no auth, and
- * returns a clean 404 for unknown domains (which lets us fall back to a
- * letter avatar). https://clearbit.com/logo
+ * Vendor logo resolution. Maps a vendor name to a domain we can fetch
+ * a logo for, then builds a URL via DuckDuckGo's free favicon service.
  *
- * Match is case-insensitive and tolerant of variations ("AWS" matches
- * "Amazon Web Services" matches "amazon"). Unknown vendors return null
- * so the caller can render a fallback avatar.
+ * Why DuckDuckGo: Clearbit's Logo API (which we used to use) was
+ * discontinued — `logo.clearbit.com` no longer resolves. DDG's
+ * `icons.duckduckgo.com/ip3/{domain}.ico` endpoint is free, requires
+ * no auth, returns the company's actual favicon at decent resolution,
+ * and reliably works for every brand we tested (AWS, OpenAI,
+ * Node.js, GitHub, Vercel, Stripe, Supabase, Resend, Cloudflare,
+ * Postgres, etc.).
+ *
+ * Match is case-insensitive and tolerant of variations ("AWS"
+ * matches "Amazon Web Services" matches "amazon"). Unknown vendors
+ * return null so the caller can render a fallback letter avatar.
  */
 const VENDOR_TO_DOMAIN: Array<[RegExp, string]> = [
   // Cloud / hosting
@@ -98,8 +104,9 @@ const VENDOR_TO_DOMAIN: Array<[RegExp, string]> = [
   // Frameworks / runtimes (less likely to be "vendors" but useful)
   [/^next\.?js/i, "nextjs.org"],
   [/^react/i, "react.dev"],
-  [/^node\.?js/i, "nodejs.org"],
+  [/^node\.?js|^node\b/i, "nodejs.org"],
   [/^docker/i, "docker.com"],
+  [/^typescript/i, "typescriptlang.org"],
 ];
 
 export function vendorLogoUrl(name: string | undefined | null): string | null {
@@ -108,7 +115,10 @@ export function vendorLogoUrl(name: string | undefined | null): string | null {
   if (!trimmed) return null;
   for (const [pattern, domain] of VENDOR_TO_DOMAIN) {
     if (pattern.test(trimmed)) {
-      return `https://logo.clearbit.com/${domain}?size=64`;
+      // DuckDuckGo's IP3 favicon service. Free, no API key. Returns
+      // the company's favicon at the best available resolution
+      // (typically 32-256px depending on what they publish).
+      return `https://icons.duckduckgo.com/ip3/${domain}.ico`;
     }
   }
   return null;
