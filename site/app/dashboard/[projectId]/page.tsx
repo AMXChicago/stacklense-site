@@ -345,24 +345,6 @@ export default async function ProjectDetailPage({
             className="login-input"
           />
 
-          <label className="form-label" htmlFor="settings_notes">
-            Project facts (the lens uses these as ground truth)
-          </label>
-          <p className="settings-hint">
-            Tell StackLense what you know about your stack — AI tools, hosting,
-            domain registrar, payment processor, anything the source code
-            can&rsquo;t reveal. The lens will treat these as confirmed facts and
-            build your blueprint around them.
-          </p>
-          <textarea
-            id="settings_notes"
-            name="notes"
-            rows={6}
-            defaultValue={project.notes ?? ""}
-            placeholder={`AI agent: Codex\nHosting: AWS ECS Fargate\nDomain registrar: GoDaddy\nPayment: Stripe`}
-            className="login-input settings-textarea"
-          />
-
           <button type="submit" className="login-btn settings-save">
             Save changes
           </button>
