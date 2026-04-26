@@ -219,12 +219,51 @@ Resources:
                   - dynamodb:ListTables
                   - dynamodb:DescribeTable
                 Resource: "*"
-              # EventBridge — describe own rule
+              # EventBridge — rules and buses
               - Effect: Allow
                 Action:
                   - events:DescribeRule
                   - events:ListRules
                   - events:ListTargetsByRule
+                  - events:ListEventBuses
+                  - events:DescribeEventBus
+                Resource: "*"
+              # SES — verified identities + configuration sets (no message content)
+              - Effect: Allow
+                Action:
+                  - ses:ListIdentities
+                  - ses:ListConfigurationSets
+                  - ses:GetIdentityVerificationAttributes
+                  - ses:GetConfigurationSet
+                  - sesv2:ListEmailIdentities
+                  - sesv2:ListConfigurationSets
+                  - sesv2:GetEmailIdentity
+                  - sesv2:GetConfigurationSet
+                Resource: "*"
+              # ACM — certificates (no private key access)
+              - Effect: Allow
+                Action:
+                  - acm:ListCertificates
+                  - acm:DescribeCertificate
+                Resource: "*"
+              # SNS — topic inventory
+              - Effect: Allow
+                Action:
+                  - sns:ListTopics
+                  - sns:GetTopicAttributes
+                Resource: "*"
+              # SQS — queue inventory
+              - Effect: Allow
+                Action:
+                  - sqs:ListQueues
+                  - sqs:GetQueueAttributes
+                Resource: "*"
+              # Cognito — user pool inventory
+              - Effect: Allow
+                Action:
+                  - cognito-idp:ListUserPools
+                  - cognito-idp:DescribeUserPool
+                  - cognito-identity:ListIdentityPools
                 Resource: "*"
 
 Outputs:

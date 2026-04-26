@@ -243,7 +243,7 @@ async function collectSourceContext(project: ProjectRow): Promise<string> {
   // the other way around.
   if (project.ecr_aws_account_id && project.ecr_webhook_token) {
     chunks.push(
-      `## What StackLense observed in your AWS account (read-only inspection)\n`
+      `## What StackLense observed in your AWS account (read-only inspection)\n\nThese facts come from real AWS API calls. Treat as authoritative for AWS-side resources.\n`
     );
     const discovery = await discoverAwsResources({
       accountId: project.ecr_aws_account_id,
@@ -258,6 +258,16 @@ async function collectSourceContext(project: ProjectRow): Promise<string> {
     } else if ("account_id" in discovery) {
       chunks.push(discoveryToPromptText(discovery));
       chunks.push("");
+      // Save the snapshot so the Inventory tab can render the raw view
+      // without re-calling AWS APIs.
+      const supabase = adminClient();
+      await supabase
+        .from("projects")
+        .update({
+          discovery_snapshot: discovery as unknown as Record<string, unknown>,
+          discovery_at: new Date().toISOString(),
+        })
+        .eq("id", project.id);
     }
   }
 
@@ -445,6 +455,11 @@ Your output MUST be valid JSON matching this exact shape (no trailing commas, no
 }
 
 REQUIRED RULES:
+
+0. CATEGORY PLACEMENT — common mistakes to avoid:
+   - "Source code" is for source-control hosts (GitHub, GitLab, Bitbucket). It is NOT for container registries. ECR/GCR/Docker Hub belong under "Hosting & compute" (or as a dependency of the deployed service), NEVER under "Source code".
+   - "AI & dev tools" is for tools used during DEVELOPMENT (Codex, Claude Code, Cursor, Windsurf, Copilot, the user's coding agent). Runtime AI APIs the app calls (OpenAI, Anthropic, etc.) ALSO go here, but label them clearly as "runtime" vs "dev-time" in the description.
+   - Treat the AWS discovery output as authoritative for what's in AWS. Do not omit observed resources just because their purpose isn't obvious.
 
 1. INCLUDE ALL 12 CATEGORIES, even if empty. An empty category has \`"components": []\`. Don't skip.
 

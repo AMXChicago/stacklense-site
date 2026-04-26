@@ -60,6 +60,8 @@ type Project = {
   blueprint_progress: BlueprintProgress | null;
   auto_verify_at: string | null;
   aws_role_verified_at: string | null;
+  discovery_snapshot: Record<string, unknown> | null;
+  discovery_at: string | null;
 };
 
 type BlueprintProgress = {
@@ -133,7 +135,7 @@ export default async function ProjectDetailPage({
   const supabase = createClient(cookieStore);
 
   const SELECT_COLS =
-    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at";
+    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at, discovery_snapshot, discovery_at";
 
   const initialFetch = await supabase
     .from("projects")
@@ -704,6 +706,8 @@ function BlueprintView({ project }: { project: Project }) {
         <BlueprintTabs
           categories={categories}
           connections={connections}
+          discoverySnapshot={project.discovery_snapshot}
+          discoveryAt={project.discovery_at}
           listView={
             <div className="bp-categories">
               {categories.map((cat) => (
