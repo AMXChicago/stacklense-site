@@ -31,7 +31,9 @@ function adminClient() {
 }
 
 const anthropic = new Anthropic();
-const BLUEPRINT_MODEL = "claude-sonnet-4-20250514";
+// Sonnet 4.5 — current generation as of late 2025 / early 2026.
+// Original Sonnet 4 (claude-sonnet-4-20250514) returned 404 in production.
+const BLUEPRINT_MODEL = "claude-sonnet-4-5-20250929";
 
 // Hard cap so we don't burn tokens on huge repos.
 const MAX_INPUT_CHARS = 200_000;
