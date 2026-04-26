@@ -8,6 +8,7 @@ import ReactFlow, {
   type Node,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { VendorLogo } from "./VendorLogo";
 
 export type DiagramComponent = {
   id: string;
@@ -171,10 +172,13 @@ function ComponentNode({
 }) {
   const inner = (
     <>
-      <div className="diag-node-name">{data.name}</div>
-      {data.vendor && data.vendor !== data.name && (
-        <div className="diag-node-vendor">{data.vendor}</div>
-      )}
+      <VendorLogo vendor={data.vendor ?? data.name} size={24} />
+      <div className="diag-node-text">
+        <div className="diag-node-name">{data.name}</div>
+        {data.vendor && data.vendor !== data.name && (
+          <div className="diag-node-vendor">{data.vendor}</div>
+        )}
+      </div>
     </>
   );
   return (

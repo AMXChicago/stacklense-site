@@ -2156,6 +2156,74 @@ a.bp-cat-item-name:hover {
   fill: var(--ink2) !important;
 }
 .react-flow__attribution { display: none !important; }
+
+/* ============================================================================
+   VENDOR LOGOS
+   ============================================================================ */
+
+.vendor-logo {
+  border-radius: 6px;
+  background: #fff;
+  padding: 2px;
+  flex-shrink: 0;
+  display: block;
+  object-fit: contain;
+}
+
+.vendor-fallback {
+  border-radius: 6px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--ink2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* In list-view category items, lay out logo + text */
+.bp-cat-item-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bp-cat-item-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* In diagram nodes, logo + text inline */
+.diag-node-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.diag-node-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Export row */
+
+.bp-export-row {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.export-buttons {
+  display: flex;
+  gap: 10px;
+}
 .status-action-stale strong {
   color: var(--amber);
   font-weight: 500;
