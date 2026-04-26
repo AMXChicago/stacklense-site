@@ -10,6 +10,7 @@ import {
 } from "./actions";
 import { DeleteProjectButton } from "./DeleteProjectButton";
 import { AutoRefresh } from "./AutoRefresh";
+import { BlueprintTabs } from "./BlueprintTabs";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
@@ -697,16 +698,25 @@ function BlueprintView({ project }: { project: Project }) {
     );
   }
 
+  const categories = bp.categories ?? [];
+  const connections = bp.connections ?? [];
+
   return (
     <div className="bp-content">
       {bp.summary && <p className="bp-summary">{bp.summary}</p>}
 
-      {bp.categories && bp.categories.length > 0 && (
-        <div className="bp-categories">
-          {bp.categories.map((cat) => (
-            <BlueprintCategoryBlock key={cat.key} category={cat} />
-          ))}
-        </div>
+      {categories.length > 0 && (
+        <BlueprintTabs
+          categories={categories}
+          connections={connections}
+          listView={
+            <div className="bp-categories">
+              {categories.map((cat) => (
+                <BlueprintCategoryBlock key={cat.key} category={cat} />
+              ))}
+            </div>
+          }
+        />
       )}
 
       {bp.decisions && bp.decisions.length > 0 && (
