@@ -1,34 +1,33 @@
 "use client";
 
 /**
- * Blueprint diagram — project-hero + category grid.
+ * Blueprint diagram — project hero + connected category grid.
  *
- * Reads top-down as a single visual answer to the question
- * "what IS this project, and what's it built from?":
+ * Reads top-down:
  *
- *   1. Hero header — project name + one-sentence summary at the top.
- *      The customer sees their project's identity first, not a wall of
- *      stack jargon.
+ *   1. Hero — project name + summary anchors the visual identity.
+ *   2. Connector — subtle line + chevron implies "everything below
+ *      makes the project above tick".
+ *   3. Connected category grid — fixed 4×3 grid with grid-template-
+ *      areas so positions are predictable. Each card has a prominent
+ *      primary-vendor logo, plain-English title + subtitle, and
+ *      clickable component tiles inside.
+ *   4. SVG overlay — drawn behind the cards, paints curved paths
+ *      between connected categories. Path endpoints sit at card
+ *      centres so the visible bit of each path is the segment between
+ *      cards (the part inside cards is hidden behind their opaque
+ *      backgrounds). Arrowheads at the destination end. Connections
+ *      are LLM-generated (aggregated component → component links up
+ *      to category level) plus a seed set of canonical architectural
+ *      flows so the standard "code → hosting → data, auth, comms,
+ *      payments" story is always visible even when the LLM is sparse.
  *
- *   2. Connecting line — a subtle vertical rule + chevron from the
- *      hero down into the grid. Implies "everything below is what
- *      makes this project tick."
- *
- *   3. Category grid — 12 cards in a responsive grid (4 across on
- *      desktop, 1 on mobile). Each card has:
- *        - colour-accented header
- *        - plain-English title (e.g. "Where it runs" instead of
- *          "Hosting & compute")
- *        - one-line subtitle so the customer never has to guess what
- *          a category means
- *        - component tiles inside, each clickable through to the
- *          vendor's own console.
- *
- * Native HTML/CSS — no React Flow canvas. The diagram is part of the
- * page, scrolls with it, inherits the page's typography. Feels like
- * "the project's blueprint" rather than "an embedded widget".
+ * Responsive: the 4×3 grid collapses to 2 columns and then 1 column
+ * at narrower widths; the SVG overlay hides itself on those layouts
+ * (linear stacking already conveys the flow).
  */
 
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { VendorLogo } from "./VendorLogo";
 
 export type DiagramComponent = {
@@ -52,12 +51,6 @@ export type DiagramConnection = {
   label?: string;
 };
 
-/**
- * Plain-English title + subtitle for each canonical category. The
- * jargon name (e.g. "Hosting & compute") still shows as a small
- * caption so technical users can still recognise it, but the customer
- * reads the friendly title first.
- */
 const CATEGORY_FRIENDLY: Record<
   string,
   { title: string; subtitle: string; color: string }
@@ -89,12 +82,12 @@ const CATEGORY_FRIENDLY: Record<
   },
   data_storage: {
     title: "Data & files",
-    subtitle: "Databases, file storage, and caches.",
+    subtitle: "Databases, file storage, caches.",
     color: "#3b82f6",
   },
   authentication: {
     title: "User login",
-    subtitle: "How people sign in to use your app.",
+    subtitle: "How people sign in.",
     color: "#ec4899",
   },
   communications: {
@@ -104,7 +97,7 @@ const CATEGORY_FRIENDLY: Record<
   },
   domains_dns: {
     title: "Web addresses",
-    subtitle: "Your URLs and the system that resolves them.",
+    subtitle: "Your URLs and DNS resolution.",
     color: "#a8a79f",
   },
   payments: {
@@ -119,22 +112,50 @@ const CATEGORY_FRIENDLY: Record<
   },
   security_secrets: {
     title: "Secrets & certificates",
-    subtitle: "API keys, passwords, SSL — the credentials.",
+    subtitle: "API keys, passwords, SSL.",
     color: "#f43f5e",
   },
 };
+
+/**
+ * Fixed grid placement. 4 columns × 3 rows. Order matches the
+ * canonical category list, with hosting placed at row-2 col-1 so it
+ * naturally becomes the central hub for the connection paths.
+ */
+const GRID_AREAS: Array<Array<string>> = [
+  ["ai_dev_tools", "source_control", "ci_cd", "application_stack"],
+  ["hosting_compute", "data_storage", "authentication", "communications"],
+  ["domains_dns", "payments", "observability", "security_secrets"],
+];
+
+/**
+ * Canonical architectural flows. Always rendered when both ends have
+ * components. The LLM's component-level connections are aggregated to
+ * category level and merged in, so the diagram reflects the actual
+ * project too.
+ */
+const DEFAULT_CONNECTIONS: DiagramConnection[] = [
+  { from: "source_control", to: "ci_cd", label: "pushes" },
+  { from: "ci_cd", to: "hosting_compute", label: "deploys to" },
+  { from: "application_stack", to: "hosting_compute", label: "runs on" },
+  { from: "domains_dns", to: "hosting_compute", label: "resolves to" },
+  { from: "hosting_compute", to: "data_storage", label: "reads / writes" },
+  { from: "hosting_compute", to: "authentication", label: "signs users in" },
+  { from: "hosting_compute", to: "communications", label: "sends email" },
+  { from: "hosting_compute", to: "payments", label: "charges via" },
+  { from: "hosting_compute", to: "observability", label: "logs to" },
+  { from: "security_secrets", to: "hosting_compute", label: "provides secrets" },
+];
 
 export function BlueprintDiagram({
   projectName,
   projectSummary,
   categories,
+  connections = [],
 }: {
   projectName: string;
   projectSummary?: string | null;
   categories: DiagramCategory[];
-  // connections is no longer rendered as visual edges — the grid
-  // already groups by category, which is what customers actually want
-  // to see. Kept on the prop for backward compat with the parent.
   connections?: DiagramConnection[];
 }) {
   const totalComponents = categories.reduce(
@@ -157,6 +178,30 @@ export function BlueprintDiagram({
     );
   }
 
+  // Build the set of category-level connections to render. Start with
+  // the canonical architectural flows, then merge in any extra ones
+  // the LLM produced at component level.
+  const componentToCategory = new Map<string, string>();
+  for (const cat of categories) {
+    for (const c of cat.components) {
+      componentToCategory.set(c.id, cat.key);
+    }
+  }
+  const categoryConnections = aggregateAndMerge(
+    DEFAULT_CONNECTIONS,
+    connections,
+    componentToCategory
+  );
+
+  // Filter to connections where both ends have components — no point
+  // drawing "DNS → Hosting" if the customer has no DNS detected.
+  const populated = new Set(
+    categories.filter((c) => c.components.length > 0).map((c) => c.key)
+  );
+  const activeConnections = categoryConnections.filter(
+    (c) => populated.has(c.from) && populated.has(c.to)
+  );
+
   return (
     <div className="bp-board">
       <ProjectHero
@@ -166,20 +211,15 @@ export function BlueprintDiagram({
         populatedCategories={populatedCategories}
       />
 
-      {/* Visual connector between the hero and the grid — pure
-          decoration, but it's what makes the grid read as "this is
-          everything that makes up the project above" instead of a
-          loose collection of cards. */}
       <div className="bp-board-link" aria-hidden>
         <div className="bp-board-link-line" />
         <div className="bp-board-link-chevron">▾</div>
       </div>
 
-      <div className="bp-board-grid">
-        {categories.map((cat) => (
-          <CategoryCard key={cat.key} category={cat} />
-        ))}
-      </div>
+      <ConnectedGrid
+        categories={categories}
+        connections={activeConnections}
+      />
     </div>
   );
 }
@@ -195,9 +235,6 @@ function ProjectHero({
   totalComponents: number;
   populatedCategories: number;
 }) {
-  // Take the first letter of each significant word for the mark, max
-  // two characters — gives a recognisable monogram without a real
-  // logo asset (e.g. "MSP Lighthouse" → "ML", "stacklense" → "S").
   const mark = monogramFromName(name);
   return (
     <header className="bp-board-hero">
@@ -217,7 +254,7 @@ function ProjectHero({
           </span>
           <span className="bp-board-stat">
             across <strong>{populatedCategories}</strong> of{" "}
-            {categoryCount()} categories
+            {Object.keys(CATEGORY_FRIENDLY).length} categories
           </span>
         </p>
       </div>
@@ -225,25 +262,95 @@ function ProjectHero({
   );
 }
 
-function CategoryCard({ category }: { category: DiagramCategory }) {
+/**
+ * The grid + the SVG overlay layered above it. The grid uses
+ * grid-template-areas so each card has a known position the overlay
+ * can draw paths between via runtime DOM measurement.
+ */
+function ConnectedGrid({
+  categories,
+  connections,
+}: {
+  categories: DiagramCategory[];
+  connections: DiagramConnection[];
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  // Lookup by category key — handy for the cards.
+  const byKey = new Map(categories.map((c) => [c.key, c]));
+
+  return (
+    <div className="bp-board-grid-wrap" ref={containerRef}>
+      <ConnectionOverlay
+        containerRef={containerRef}
+        cardRefs={cardRefs}
+        connections={connections}
+      />
+      <div className="bp-board-grid">
+        {GRID_AREAS.flat().map((key) => {
+          const cat = byKey.get(key);
+          if (!cat) return null;
+          return (
+            <CategoryCard
+              key={key}
+              gridArea={key}
+              category={cat}
+              setRef={(el) => {
+                cardRefs.current[key] = el;
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CategoryCard({
+  category,
+  gridArea,
+  setRef,
+}: {
+  category: DiagramCategory;
+  gridArea: string;
+  setRef: (el: HTMLElement | null) => void;
+}) {
   const friendly = CATEGORY_FRIENDLY[category.key] ?? {
     title: category.label,
     subtitle: "",
     color: "#888",
   };
   const isEmpty = category.components.length === 0;
+  // Primary vendor for the hero logo on this card. Falls back to the
+  // first component's name when no vendor is set.
+  const primary = category.components[0];
+  const primaryVendor = primary?.vendor ?? primary?.name;
 
   return (
     <article
+      ref={setRef}
       className={`bp-board-cat ${isEmpty ? "bp-board-cat-empty" : ""}`}
-      style={{ ["--cat-color" as string]: friendly.color }}
+      style={{
+        ["--cat-color" as string]: friendly.color,
+        gridArea,
+      }}
     >
       <header className="bp-board-cat-head">
-        <h3 className="bp-board-cat-title">{friendly.title}</h3>
-        {friendly.subtitle && (
-          <p className="bp-board-cat-subtitle">{friendly.subtitle}</p>
-        )}
-        <p className="bp-board-cat-tech">{category.label}</p>
+        <div className="bp-board-cat-logo">
+          {primaryVendor ? (
+            <VendorLogo vendor={primaryVendor} size={44} />
+          ) : (
+            <div className="bp-board-cat-logo-placeholder" aria-hidden />
+          )}
+        </div>
+        <div className="bp-board-cat-head-text">
+          <h3 className="bp-board-cat-title">{friendly.title}</h3>
+          {friendly.subtitle && (
+            <p className="bp-board-cat-subtitle">{friendly.subtitle}</p>
+          )}
+          <p className="bp-board-cat-tech">{category.label}</p>
+        </div>
       </header>
       <div className="bp-board-cat-body">
         {isEmpty ? (
@@ -270,7 +377,7 @@ function ComponentTile({ component }: { component: DiagramComponent }) {
     <>
       <VendorLogo
         vendor={component.vendor ?? component.name}
-        size={28}
+        size={24}
       />
       <div className="bp-board-comp-text">
         <div className="bp-board-comp-name">{component.name}</div>
@@ -302,7 +409,199 @@ function ComponentTile({ component }: { component: DiagramComponent }) {
 }
 
 // ----------------------------------------------------------------------------
+// SVG connection overlay
+// ----------------------------------------------------------------------------
+
+type ResolvedPath = {
+  key: string;
+  d: string; // SVG path
+  label?: string;
+  midX: number;
+  midY: number;
+  color: string;
+};
+
+/**
+ * Sits absolutely positioned over the grid wrapper. Measures card
+ * positions via getBoundingClientRect and draws curved bezier paths
+ * between connected category cards. Re-measures on resize via a
+ * ResizeObserver. Hides itself on narrow viewports where the grid
+ * collapses to a single column.
+ */
+function ConnectionOverlay({
+  containerRef,
+  cardRefs,
+  connections,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  cardRefs: React.MutableRefObject<Record<string, HTMLElement | null>>;
+  connections: DiagramConnection[];
+}) {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [paths, setPaths] = useState<ResolvedPath[]>([]);
+  const [enabled, setEnabled] = useState(true);
+
+  const measure = () => {
+    const c = containerRef.current;
+    if (!c) return;
+    const cb = c.getBoundingClientRect();
+    setSize({ w: cb.width, h: cb.height });
+
+    // The overlay only makes visual sense when the grid is in its
+    // 4-column form (where cards have predictable positions and
+    // there's space between them for paths to weave). At narrower
+    // widths the grid stacks linearly and the paths add noise rather
+    // than signal — so we hide ourselves.
+    setEnabled(cb.width >= 1100);
+
+    const next: ResolvedPath[] = [];
+    for (const conn of connections) {
+      const fromEl = cardRefs.current[conn.from];
+      const toEl = cardRefs.current[conn.to];
+      if (!fromEl || !toEl) continue;
+      const fb = fromEl.getBoundingClientRect();
+      const tb = toEl.getBoundingClientRect();
+
+      // Use card centres relative to the container. Endpoints land
+      // inside the cards, but the SVG sits BEHIND the cards in the
+      // stacking order — so the visible part of each path is just
+      // the segment between the cards.
+      const fx = fb.left + fb.width / 2 - cb.left;
+      const fy = fb.top + fb.height / 2 - cb.top;
+      const tx = tb.left + tb.width / 2 - cb.left;
+      const ty = tb.top + tb.height / 2 - cb.top;
+
+      // Cubic bezier control points pulled along the dominant axis
+      // for a soft S-curve. Use 0.45 of the distance along the axis.
+      const dx = tx - fx;
+      const dy = ty - fy;
+      const useHorizontal = Math.abs(dx) >= Math.abs(dy);
+      let c1x: number, c1y: number, c2x: number, c2y: number;
+      if (useHorizontal) {
+        c1x = fx + dx * 0.45;
+        c1y = fy;
+        c2x = tx - dx * 0.45;
+        c2y = ty;
+      } else {
+        c1x = fx;
+        c1y = fy + dy * 0.45;
+        c2x = tx;
+        c2y = ty - dy * 0.45;
+      }
+
+      const d = `M ${fx} ${fy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`;
+
+      // Mid-point along the bezier (rough approx — the geometric
+      // midpoint between control midpoints) for the label.
+      const midX = (fx + tx + c1x + c2x) / 4;
+      const midY = (fy + ty + c1y + c2y) / 4;
+
+      const color =
+        CATEGORY_FRIENDLY[conn.to]?.color ?? "rgba(255,255,255,0.4)";
+
+      next.push({
+        key: `${conn.from}->${conn.to}`,
+        d,
+        label: conn.label,
+        midX,
+        midY,
+        color,
+      });
+    }
+    setPaths(next);
+  };
+
+  // Use useLayoutEffect so we measure after layout but before paint.
+  useLayoutEffect(() => {
+    measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections]);
+
+  useEffect(() => {
+    const c = containerRef.current;
+    if (!c) return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(c);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!enabled || size.w === 0) return null;
+
+  return (
+    <svg
+      className="bp-board-overlay"
+      width={size.w}
+      height={size.h}
+      viewBox={`0 0 ${size.w} ${size.h}`}
+      aria-hidden
+    >
+      <defs>
+        {paths.map((p) => (
+          <marker
+            key={`m-${p.key}`}
+            id={`arrow-${p.key}`}
+            viewBox="0 0 10 10"
+            refX="6"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={p.color} opacity="0.85" />
+          </marker>
+        ))}
+      </defs>
+      {paths.map((p) => (
+        <path
+          key={p.key}
+          d={p.d}
+          stroke={p.color}
+          strokeWidth={1.6}
+          strokeOpacity={0.55}
+          fill="none"
+          markerEnd={`url(#arrow-${p.key})`}
+        />
+      ))}
+      {paths.map(
+        (p) =>
+          p.label && (
+            <g key={`l-${p.key}`} className="bp-board-overlay-label">
+              <rect
+                x={p.midX - approxLabelWidth(p.label) / 2 - 6}
+                y={p.midY - 9}
+                width={approxLabelWidth(p.label) + 12}
+                height={18}
+                rx={9}
+                ry={9}
+                fill="#0c0c0a"
+                stroke={p.color}
+                strokeOpacity={0.4}
+              />
+              <text
+                x={p.midX}
+                y={p.midY + 4}
+                textAnchor="middle"
+                fontSize={10}
+                fontFamily="monospace"
+                fill="#a8a79f"
+              >
+                {p.label}
+              </text>
+            </g>
+          )
+      )}
+    </svg>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Helpers
+// ----------------------------------------------------------------------------
 
 function monogramFromName(name: string): string {
   const words = name
@@ -316,6 +615,34 @@ function monogramFromName(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
-function categoryCount(): number {
-  return Object.keys(CATEGORY_FRIENDLY).length;
+function approxLabelWidth(label: string): number {
+  // Rough monospace width — 6.2px/char at 10px size.
+  return label.length * 6.2;
+}
+
+/**
+ * Aggregate component-level LLM connections up to category level,
+ * then merge them with the canonical architectural defaults so we
+ * always have the standard "code → hosting → data, auth, comms,
+ * payments" backbone. De-duped by (from, to) pair.
+ */
+function aggregateAndMerge(
+  defaults: DiagramConnection[],
+  llm: DiagramConnection[],
+  componentToCategory: Map<string, string>
+): DiagramConnection[] {
+  const merged = new Map<string, DiagramConnection>();
+  for (const d of defaults) {
+    merged.set(`${d.from}|${d.to}`, d);
+  }
+  for (const c of llm) {
+    const fromCat = componentToCategory.get(c.from);
+    const toCat = componentToCategory.get(c.to);
+    if (!fromCat || !toCat || fromCat === toCat) continue;
+    const key = `${fromCat}|${toCat}`;
+    if (!merged.has(key)) {
+      merged.set(key, { from: fromCat, to: toCat, label: c.label });
+    }
+  }
+  return Array.from(merged.values());
 }

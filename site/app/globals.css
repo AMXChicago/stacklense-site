@@ -2187,11 +2187,63 @@ a.bp-cat-item-name:hover {
   margin-top: 4px;
 }
 
-/* Grid of category cards. Auto-fits 1-4 columns based on viewport. */
+/* Wrapper around the grid + the absolute-positioned SVG overlay.
+ * The SVG sits BEHIND the cards (z-index 0) so the visible bit of
+ * each connection path is just the segment between cards. */
+.bp-board-grid-wrap {
+  position: relative;
+}
+.bp-board-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Fixed 4-column grid with explicit grid-template-areas so the SVG
+ * overlay can rely on predictable card positions. Collapses to 2
+ * columns and then 1 at narrower widths; the SVG overlay self-hides
+ * when the grid isn't in 4-column mode. */
 .bp-board-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-areas:
+    "ai_dev_tools source_control ci_cd application_stack"
+    "hosting_compute data_storage authentication communications"
+    "domains_dns payments observability security_secrets";
+  gap: 18px;
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 1100px) {
+  .bp-board-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-areas:
+      "ai_dev_tools source_control"
+      "ci_cd application_stack"
+      "hosting_compute data_storage"
+      "authentication communications"
+      "domains_dns payments"
+      "observability security_secrets";
+  }
+}
+@media (max-width: 700px) {
+  .bp-board-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "ai_dev_tools"
+      "source_control"
+      "ci_cd"
+      "application_stack"
+      "hosting_compute"
+      "data_storage"
+      "authentication"
+      "communications"
+      "domains_dns"
+      "payments"
+      "observability"
+      "security_secrets";
+  }
 }
 
 .bp-board-cat {
@@ -2203,14 +2255,47 @@ a.bp-cat-item-name:hover {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
 }
 .bp-board-cat-empty {
   opacity: 0.55;
 }
+/* New head layout: prominent vendor logo on the left, title stack
+ * on the right. Lets the customer recognise "AWS / Vercel / Stripe"
+ * at a glance even before reading the title. */
 .bp-board-cat-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.bp-board-cat-logo {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.bp-board-cat-logo .vendor-logo {
+  width: 44px;
+  height: 44px;
+}
+.bp-board-cat-logo .vendor-fallback {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+.bp-board-cat-logo-placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px dashed var(--border2);
+}
+.bp-board-cat-head-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 .bp-board-cat-title {
   margin: 0;
