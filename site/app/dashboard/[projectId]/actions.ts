@@ -16,6 +16,7 @@ export async function updateProject(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const description =
     String(formData.get("description") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
 
   if (!projectId) {
     redirect("/dashboard");
@@ -33,7 +34,7 @@ export async function updateProject(formData: FormData) {
 
   const { error } = await supabase
     .from("projects")
-    .update({ name, description })
+    .update({ name, description, notes })
     .eq("id", projectId);
 
   if (error) {

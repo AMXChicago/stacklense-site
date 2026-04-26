@@ -51,7 +51,7 @@ export async function POST(
   const supabase = adminClient();
   const { data: project, error } = await supabase
     .from("projects")
-    .select("id, ecr_repo_name")
+    .select("id, ecr_repo_name, ecr_aws_account_id")
     .eq("ecr_webhook_token", token)
     .single();
 
@@ -71,6 +71,21 @@ export async function POST(
   const eventRepo = payload.detail?.["repository-name"];
   if (project.ecr_repo_name && eventRepo && project.ecr_repo_name !== eventRepo) {
     return NextResponse.json({ ok: true, ignored: "repo filter" });
+  }
+
+  // Backfill ECR account ID and repo name from the event payload if the
+  // project was connected without them (the form fields are optional).
+  // Once we know them, we keep the values for richer blueprint context.
+  const eventAccount = payload.account ?? null;
+  const backfill: Record<string, string> = {};
+  if (!project.ecr_aws_account_id && eventAccount) {
+    backfill.ecr_aws_account_id = eventAccount;
+  }
+  if (!project.ecr_repo_name && eventRepo) {
+    backfill.ecr_repo_name = eventRepo;
+  }
+  if (Object.keys(backfill).length > 0) {
+    await supabase.from("projects").update(backfill).eq("id", project.id);
   }
 
   await supabase.from("deploys").insert({
