@@ -9,12 +9,16 @@ import {
 import { BlueprintInventory } from "./BlueprintInventory";
 
 export function BlueprintTabs({
+  projectName,
+  projectSummary,
   categories,
   connections,
   listView,
   discoverySnapshot,
   discoveryAt,
 }: {
+  projectName: string;
+  projectSummary?: string | null;
   categories: DiagramCategory[];
   connections: DiagramConnection[];
   listView: ReactNode;
@@ -52,6 +56,8 @@ export function BlueprintTabs({
       </div>
       {view === "diagram" && (
         <BlueprintDiagram
+          projectName={projectName}
+          projectSummary={projectSummary}
           categories={categories}
           connections={connections}
         />

@@ -726,6 +726,8 @@ function BlueprintView({ project }: { project: Project }) {
 
       {categories.length > 0 && (
         <BlueprintTabs
+          projectName={project.name}
+          projectSummary={bp.summary ?? project.description}
           categories={categories}
           connections={connections}
           discoverySnapshot={project.discovery_snapshot}
