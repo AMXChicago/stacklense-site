@@ -24,8 +24,8 @@
  * with their AWS data — it's diagnostics + remediation in one card.
  */
 
-import { testAwsConnection } from "./actions";
 import { CopyButton } from "./CopyButton";
+import { TestConnectionButton } from "./TestConnectionButton";
 import {
   CFN_TEMPLATE_URL,
   CFN_TEMPLATE_VERSION,
@@ -51,6 +51,10 @@ type Props = {
     | null
     | undefined;
   discoveryAt: string | null;
+  // Whether a discovery run is in flight right now. When true, the
+  // panel shows an inline spinner so the user has feedback right where
+  // they clicked, not just up in the Status panel.
+  blueprintStatus: "pending" | "generating" | "ready" | "failed";
   // Flash state from the last test-connection action.
   lastTestResult: "ok" | "fail" | null;
   lastTestMessage: string | null;
@@ -94,12 +98,27 @@ export function AwsConnectionPanel(props: Props) {
           />
         </div>
 
-        {props.lastTestResult === "ok" && (
-          <div className="aws-conn-flash aws-conn-flash-ok">
-            ✓ Connection healthy. We successfully assumed the read-only role
-            and kicked off a fresh discovery run.
+        {/*
+          When the blueprint is generating, that means a discovery run is
+          in flight (either auto, or kicked off by Test connection). Show
+          this inline so the customer doesn't have to look up at the top
+          Status panel to know something's happening.
+         */}
+        {props.blueprintStatus === "generating" && (
+          <div className="aws-conn-flash aws-conn-flash-running">
+            <span className="aws-test-conn-spinner" aria-hidden="true" />
+            Re-running discovery — checking which AWS services we can read
+            with the current permissions. This usually takes 30–60 seconds.
+            The page refreshes automatically.
           </div>
         )}
+        {props.blueprintStatus !== "generating" &&
+          props.lastTestResult === "ok" && (
+            <div className="aws-conn-flash aws-conn-flash-ok">
+              ✓ Connection healthy. We assumed the read-only role and
+              re-ran discovery — see the result below.
+            </div>
+          )}
         {props.lastTestResult === "fail" && (
           <div className="aws-conn-flash aws-conn-flash-err">
             ✗ Connection check failed.{" "}
@@ -118,16 +137,7 @@ export function AwsConnectionPanel(props: Props) {
         />
 
         <div className="aws-conn-actions">
-          <form action={testAwsConnection}>
-            <input
-              type="hidden"
-              name="project_id"
-              value={props.projectId}
-            />
-            <button type="submit" className="aws-action-btn">
-              Test connection
-            </button>
-          </form>
+          <TestConnectionButton projectId={props.projectId} />
 
           <a
             href={manageUrl}
@@ -372,69 +382,107 @@ function ConnectionGuidance({
 
 function UpdateInstructions({
   templateUrl,
-  stackName,
 }: {
   templateUrl: string;
   stackName: string;
 }) {
   return (
     <div className="aws-conn-update">
-      <h3 className="aws-conn-update-title">How to update (≈60 seconds)</h3>
-      <ol className="aws-conn-update-steps">
+      <h3 className="aws-conn-update-title">
+        Update your stack — ~60 seconds, one paste
+      </h3>
+
+      <p className="aws-conn-update-lede">
+        Copy this URL. You&rsquo;ll paste it once in AWS:
+      </p>
+
+      <div className="aws-conn-copy-row aws-conn-copy-row-hero">
+        <code className="aws-code aws-code-block">{templateUrl}</code>
+        <CopyButton value={templateUrl} label="Copy URL" />
+      </div>
+
+      <p className="aws-conn-update-lede">Then in AWS:</p>
+
+      <ol className="aws-conn-update-compact">
         <li>
-          Click <strong>Update AWS connection</strong> above. AWS Console
-          opens to your stack list filtered to{" "}
-          <code className="aws-code">{stackName}</code>. Click the stack
-          name to open it.
+          Click <strong>Update AWS connection</strong> above, then click
+          your stack name.
         </li>
         <li>
-          Click the <strong>Update</strong> button (top right).
+          <strong>Update</strong> → <strong>Make a direct update</strong>{" "}
+          → <strong>Next</strong>.
         </li>
         <li>
-          On <strong>Update method</strong>, choose{" "}
-          <strong>Make a direct update</strong>. Click <strong>Next</strong>.
+          <strong>Replace existing template</strong> → paste the URL above
+          → <strong>Next</strong>.
         </li>
         <li>
-          On <strong>Prepare template</strong>, choose{" "}
-          <strong>Replace existing template</strong>.
+          <strong>Next</strong>, <strong>Next</strong> (don&rsquo;t change{" "}
+          <code className="aws-code">WebhookToken</code>).
         </li>
         <li>
-          On <strong>Specify template</strong>, choose{" "}
-          <strong>Amazon S3 URL</strong> and paste this:
-          <div className="aws-conn-copy-row">
-            <code className="aws-code aws-code-block">{templateUrl}</code>
-            <CopyButton value={templateUrl} label="Copy URL" />
-          </div>
-          Click <strong>Next</strong>.
-        </li>
-        <li>
-          On <strong>Specify stack details</strong>, leave the{" "}
-          <code className="aws-code">WebhookToken</code> value alone (it
-          must stay the same so events keep matching this project). Click{" "}
-          <strong>Next</strong>.
-        </li>
-        <li>
-          On <strong>Configure stack options</strong>, leave defaults and
-          click <strong>Next</strong>.
-        </li>
-        <li>
-          On the review page, scroll to the bottom and check{" "}
-          <strong>
-            &ldquo;I acknowledge that AWS CloudFormation might create IAM
-            resources&rdquo;
-          </strong>
-          . Click <strong>Submit</strong>.
-        </li>
-        <li>
-          Wait for the stack status to flip to{" "}
-          <code className="aws-code">UPDATE_COMPLETE</code> (~30 seconds).
-        </li>
-        <li>
-          Come back here and click <strong>Test connection</strong> — the
-          status pill flips to <strong>Connection healthy</strong> once
-          discovery confirms the new permissions.
+          Check the IAM box → <strong>Submit</strong>.
         </li>
       </ol>
+
+      <p className="aws-conn-update-tip">
+        When the stack shows{" "}
+        <code className="aws-code">UPDATE_COMPLETE</code>, come back here
+        and click <strong>Test connection</strong>.
+      </p>
+
+      <details className="aws-conn-update-detail">
+        <summary>Need every screen explained? Show full walkthrough</summary>
+        <ol className="aws-conn-update-steps">
+          <li>
+            Click <strong>Update AWS connection</strong> above. AWS opens
+            your stack list. Click the <strong>StackLenseConnect</strong>{" "}
+            stack name to open it.
+          </li>
+          <li>
+            Top right, click the <strong>Update</strong> button.
+          </li>
+          <li>
+            <strong>Update method</strong> screen → choose{" "}
+            <strong>Make a direct update</strong>. <strong>Next</strong>.
+          </li>
+          <li>
+            <strong>Prepare template</strong> screen → choose{" "}
+            <strong>Replace existing template</strong>.
+          </li>
+          <li>
+            <strong>Specify template</strong> → <strong>Amazon S3 URL</strong>{" "}
+            → paste the URL from above → <strong>Next</strong>.
+          </li>
+          <li>
+            <strong>Specify stack details</strong> → leave the{" "}
+            <code className="aws-code">WebhookToken</code> value alone (if
+            you change it, events from your AWS account stop matching this
+            project). <strong>Next</strong>.
+          </li>
+          <li>
+            <strong>Configure stack options</strong> → all defaults are
+            fine. <strong>Next</strong>.
+          </li>
+          <li>
+            Review page → scroll down → check{" "}
+            <strong>
+              &ldquo;I acknowledge that AWS CloudFormation might create
+              IAM resources&rdquo;
+            </strong>{" "}
+            → <strong>Submit</strong>.
+          </li>
+          <li>
+            Wait ~30 seconds for{" "}
+            <code className="aws-code">UPDATE_COMPLETE</code>.
+          </li>
+          <li>
+            Back here → <strong>Test connection</strong>. The status pill
+            flips to <strong>Connection healthy</strong> once discovery
+            confirms the new permissions.
+          </li>
+        </ol>
+      </details>
     </div>
   );
 }

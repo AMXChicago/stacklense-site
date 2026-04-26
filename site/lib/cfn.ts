@@ -154,6 +154,21 @@ export type DiscoveryErrorSummary = {
   hasPermissionGap: boolean;
 };
 
+/**
+ * Tight regexes that match the canonical AWS SDK permission-failure
+ * shapes. Avoids matching the bare word "authorization" (which appears
+ * in plenty of unrelated errors like rate limit / signature failures
+ * and produces false positives).
+ */
+const PERMISSION_GAP_PATTERNS: RegExp[] = [
+  /\baccess\s*denied\b/i, // "AccessDenied", "Access Denied"
+  /\bnot\s+authori[sz]ed\b/i, // "is not authorized", "is not authorised"
+  /\bunauthorizedoperation\b/i, // EC2-style
+  /\bexplicit\s+deny\b/i, // SCP / permission boundary
+  /\bforbidden\b/i, // 403 surface from some services
+  /\bmissingauthenticationtoken\b/i, // edge case
+];
+
 export function summarizeDiscoveryErrors(
   errors: Array<{ source: string; message: string }> | null | undefined
 ): DiscoveryErrorSummary {
@@ -161,14 +176,9 @@ export function summarizeDiscoveryErrors(
   const accessDenied: Array<{ source: string; message: string }> = [];
   const other: Array<{ source: string; message: string }> = [];
   for (const err of list) {
-    const msg = (err.message ?? "").toLowerCase();
-    if (
-      msg.includes("accessdenied") ||
-      msg.includes("not authorized") ||
-      msg.includes("is not authorised") ||
-      msg.includes("authorization") ||
-      msg.includes("explicit deny")
-    ) {
+    const msg = err.message ?? "";
+    const isPermGap = PERMISSION_GAP_PATTERNS.some((p) => p.test(msg));
+    if (isPermGap) {
       accessDenied.push(err);
     } else {
       other.push(err);

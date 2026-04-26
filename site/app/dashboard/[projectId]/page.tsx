@@ -289,6 +289,7 @@ export default async function ProjectDetailPage({
           cfnTemplateVersion={project.cfn_template_version}
           discoveryErrors={discoveryErrors}
           discoveryAt={project.discovery_at}
+          blueprintStatus={project.blueprint_status}
           lastTestResult={connTestResult}
           lastTestMessage={connTestMessage}
         />
