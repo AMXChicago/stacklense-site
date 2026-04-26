@@ -2074,6 +2074,255 @@ a.bp-cat-item-name:hover {
   min-height: 600px;
 }
 
+/* ============================================================================
+   BLUEPRINT FLOW DIAGRAM (lane-based, top-to-bottom narrative)
+   ============================================================================
+   Replaces the old 4×3 React Flow grid with a vertical flow that
+   non-technical founders can read like a story:
+     1. Build → 2. Run → 3. Store → 4. Reach → 5. Watch
+   Each lane is a numbered stage with a plain-English subtitle. Inside
+   each lane, categories sit as horizontal cards with their own
+   plain-English titles. Components are clickable tiles linking to the
+   vendor's console. Inline SVG arrows between lanes communicate flow.
+   No tech jargon at the top of the visual hierarchy. */
+
+.bp-flow {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.bp-flow-guide {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+.bp-flow-guide p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.6;
+}
+
+.bp-flow-lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.bp-flow-lane {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-left: 3px solid var(--lane-color, var(--ink3));
+  border-radius: 12px;
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.bp-flow-lane-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.bp-flow-lane-num {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--lane-color, var(--ink3));
+  color: var(--bg);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+.bp-flow-lane-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bp-flow-lane-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.bp-flow-lane-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.4;
+}
+
+.bp-flow-lane-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.bp-flow-cat {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bp-flow-cat-empty {
+  opacity: 0.6;
+}
+.bp-flow-cat-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border2);
+}
+.bp-flow-cat-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.bp-flow-cat-subtitle {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink3);
+  line-height: 1.5;
+}
+.bp-flow-cat-not-detected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink3);
+  font-style: italic;
+  padding: 4px 0 6px;
+}
+.bp-flow-cat-not-detected-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink3);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.bp-flow-components {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bp-flow-comp {
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.bp-flow-comp-link {
+  cursor: pointer;
+}
+.bp-flow-comp-link:hover {
+  border-color: var(--lane-color, var(--ink3));
+  transform: translateY(-1px);
+}
+.bp-flow-comp-link:hover .bp-flow-comp-arrow {
+  color: var(--lane-color, var(--green));
+  transform: translate(2px, -2px);
+}
+.bp-flow-comp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bp-flow-comp-text {
+  flex: 1;
+  min-width: 0;
+}
+.bp-flow-comp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-flow-comp-vendor {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-flow-comp-arrow {
+  font-size: 12px;
+  color: var(--ink3);
+  flex-shrink: 0;
+  transition: transform 0.15s, color 0.15s;
+}
+.bp-flow-comp-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink2);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bp-flow-arrow {
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 56px;
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .bp-flow {
+    padding: 16px;
+  }
+  .bp-flow-lane {
+    padding: 14px 16px 18px;
+  }
+  .bp-flow-lane-title {
+    font-size: 16px;
+  }
+  .bp-flow-lane-num {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+  .bp-flow-lane-body {
+    grid-template-columns: 1fr;
+  }
+}
+
 .diag-cat-header {
   font-family: var(--mono);
   font-size: 11px;
