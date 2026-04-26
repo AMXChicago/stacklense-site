@@ -2009,6 +2009,153 @@ a.bp-cat-item-name:hover {
   line-height: 1.65;
   margin: 0;
 }
+
+/* ============================================================================
+   BLUEPRINT — Tabs + diagram
+   ============================================================================ */
+
+.bp-tabs-wrapper {
+  margin-bottom: 32px;
+}
+
+.bp-tabs {
+  display: inline-flex;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 16px;
+  gap: 2px;
+}
+
+.bp-tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 8px 18px;
+  background: transparent;
+  border: none;
+  color: var(--ink3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bp-tab:hover { color: var(--ink2); }
+.bp-tab-active {
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.bp-list-pane {
+  /* List view container */
+}
+
+.bp-diagram-wrapper {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 600px;
+}
+
+.diag-cat-header {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink2);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 3px solid;
+}
+.diag-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.diag-cat-label { flex: 1; }
+.diag-cat-empty {
+  font-size: 9px;
+  color: var(--ink3);
+  letter-spacing: 0.05em;
+}
+
+.diag-node {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-left: 3px solid #3dd68c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: var(--sans);
+  transition: all 0.15s;
+}
+.diag-node:hover {
+  border-color: var(--ink3);
+  transform: translateY(-1px);
+}
+
+.diag-node-link {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  margin-bottom: 4px;
+}
+.diag-node-link-static { cursor: default; }
+
+.diag-node-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diag-node-vendor {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink3);
+  white-space: nowrap;
+}
+
+.diag-node-arrow {
+  font-size: 11px;
+  color: var(--ink3);
+}
+.diag-node-link:hover .diag-node-arrow { color: var(--green); }
+
+.diag-node-desc {
+  font-size: 11px;
+  color: var(--ink2);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* React Flow controls — restyle for dark theme */
+.react-flow__controls button {
+  background: var(--bg2) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--ink2) !important;
+  fill: var(--ink2) !important;
+}
+.react-flow__controls button:hover {
+  background: var(--bg3) !important;
+  color: var(--ink) !important;
+}
+.react-flow__controls button svg {
+  fill: var(--ink2) !important;
+}
+.react-flow__attribution { display: none !important; }
 .status-action-stale strong {
   color: var(--amber);
   font-weight: 500;
