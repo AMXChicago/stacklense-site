@@ -18,11 +18,11 @@ export default async function ConnectAwsPage({
           ← Pick a different connect method
         </Link>
         <div className="dash-section-label">Connect — AWS ECR</div>
-        <h1 className="dash-h1">Watch your ECR pushes</h1>
+        <h1 className="dash-h1">Watch your AWS deploys</h1>
         <p className="dash-sub">
-          Tell us about the project, then run a CloudFormation template that
-          installs an EventBridge rule in your AWS account. From then on,
-          every ECR push triggers a blueprint update.
+          Tell us about the project. On the next page you&rsquo;ll click one
+          button in AWS to finish setup. After that, every time you ship a
+          new version, we rebuild your blueprint.
         </p>
       </div>
 
@@ -81,9 +81,8 @@ export default async function ConnectAwsPage({
       </form>
 
       <p className="connect-foot" style={{ marginTop: 32 }}>
-        On the next page you&rsquo;ll get a CloudFormation Quick Create link
-        with everything pre-filled. Takes about 60 seconds in your AWS
-        console.
+        On the next page, click one button in AWS — everything is
+        pre-filled. Takes about 60 seconds.
       </p>
     </>
   );

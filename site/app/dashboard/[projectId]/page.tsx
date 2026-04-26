@@ -134,12 +134,12 @@ export default async function ProjectDetailPage({
       </div>
 
       {regeneratingFlash && (
-        <div className="dash-flash">⟳ Regenerating blueprint…</div>
+        <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
       )}
       {testSentFlash && (
         <div className="dash-flash">
-          ✓ Test event sent. Refresh in a few seconds to see the deploy row +
-          blueprint regenerate.
+          ✓ Test update sent. Refresh in a few seconds to see it in your
+          history and your blueprint rebuild.
         </div>
       )}
 
@@ -207,12 +207,12 @@ export default async function ProjectDetailPage({
       </section>
 
       <section className="project-section">
-        <h2 className="dash-h2">Recent deploys</h2>
+        <h2 className="dash-h2">Recent updates</h2>
         {!deploys || deploys.length === 0 ? (
           <div className="project-empty">
             <p>
-              No deploy events recorded yet. Once you push to your repo (GitHub)
-              or push an image (ECR), this list will populate.
+              No updates yet. We&rsquo;ll show them here as you ship new
+              versions of your project.
             </p>
           </div>
         ) : (
@@ -322,10 +322,10 @@ function computeStages(
   const raw = [
     { key: "created" as const, label: "Created", done: true, failed: false },
     { key: "connected" as const, label: "Connected", done: wired, failed: false },
-    { key: "first_event" as const, label: "First event", done: hasEvent, failed: false },
+    { key: "first_event" as const, label: "First update", done: hasEvent, failed: false },
     {
       key: "ready" as const,
-      label: "Blueprint ready",
+      label: "Blueprint",
       done: blueprintReady,
       failed: blueprintFailed,
     },
@@ -398,9 +398,9 @@ function ProjectStatusPanel({
           {!failed && active?.key === "connected" && isEcr && (
             <>
               <p className="status-action-text">
-                Open CloudFormation to install the EventBridge rule in your
-                AWS account. Once a real or test event arrives, this step
-                marks complete automatically.
+                Open AWS to finish setup. This adds a small piece to your AWS
+                account so we know when you ship a new version. Once you do —
+                or click the test button — this step turns green.
               </p>
               <div className="status-buttons">
                 {cfnUrl && (
@@ -410,7 +410,7 @@ function ProjectStatusPanel({
                     rel="noopener noreferrer"
                     className="aws-action-btn"
                   >
-                    Open CloudFormation →
+                    Open AWS setup →
                   </a>
                 )}
                 <Link
@@ -428,8 +428,8 @@ function ProjectStatusPanel({
             <>
               <p className="status-action-text">
                 {isGitHub
-                  ? "Webhook installed on your repo. Push a commit to trigger your first blueprint."
-                  : "Wiring is in place. Push to ECR — or use the test button below to verify the webhook end-to-end."}
+                  ? "Setup is connected. Push code to your repo to generate your first blueprint."
+                  : "Setup is connected. Ship a new version of your app — or click the test button to fake an update and verify everything works."}
               </p>
               <div className="status-buttons">
                 {isGitHub && project.git_repo_full_name && (
@@ -449,18 +449,18 @@ function ProjectStatusPanel({
 
           {!failed && active?.key === "ready" && (
             <p className="status-action-text">
-              <span className="bp-spinner" /> Event received. Generating
-              blueprint with Claude — usually 15–30 seconds. This page
-              auto-refreshes.
+              <span className="bp-spinner" /> Update received. Building your
+              blueprint — usually takes 15–30 seconds. This page refreshes
+              automatically.
             </p>
           )}
 
           {allDone && (
             <>
               <p className="status-action-text">
-                ✓ Project is fully connected.{" "}
+                ✓ Everything&rsquo;s connected.{" "}
                 {lastDeploy &&
-                  `Last event ${formatRelative(lastDeploy.created_at)}.`}
+                  `Last update ${formatRelative(lastDeploy.created_at)}.`}
               </p>
               <div className="status-buttons">
                 <RegenerateButton projectId={project.id} />
@@ -490,7 +490,7 @@ function TestEventButton({ projectId }: { projectId: string }) {
     <form action={sendTestEvent}>
       <input type="hidden" name="project_id" value={projectId} />
       <button type="submit" className="status-secondary-btn">
-        Send test event
+        Send a test update
       </button>
     </form>
   );
