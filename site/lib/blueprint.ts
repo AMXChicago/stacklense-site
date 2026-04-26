@@ -117,7 +117,7 @@ async function generateBlueprint(projectId: string) {
     const { data: project, error } = await supabase
       .from("projects")
       .select(
-        "id, name, description, git_host, git_repo_full_name, ecr_aws_account_id, ecr_repo_name"
+        "id, name, description, notes, git_host, git_repo_full_name, ecr_aws_account_id, ecr_repo_name"
       )
       .eq("id", projectId)
       .single();
@@ -215,6 +215,7 @@ type ProjectRow = {
   id: string;
   name: string;
   description: string | null;
+  notes: string | null;
   git_host: string | null;
   git_repo_full_name: string | null;
   ecr_aws_account_id: string | null;
@@ -229,10 +230,19 @@ type ProjectRow = {
 async function collectSourceContext(project: ProjectRow): Promise<string> {
   const chunks: string[] = [];
 
-  chunks.push(
-    `# Project: ${project.name}\n\n` +
-      (project.description ? `Description: ${project.description}\n\n` : "")
-  );
+  chunks.push(`# Project: ${project.name}\n`);
+  if (project.description) {
+    chunks.push(`Description: ${project.description}\n`);
+  }
+
+  // User-provided facts. These are CRITICAL — the user is telling us things
+  // the source code can't reveal (AI tools, registrar, hosting platform,
+  // confirmed product choices). Trust them over inference.
+  if (project.notes && project.notes.trim()) {
+    chunks.push(
+      `## Confirmed facts the user has told us about this project\n\nThese are authoritative — do not contradict them in the blueprint.\n\n${project.notes.trim()}\n`
+    );
+  }
 
   if (project.git_host === "github" && project.git_repo_full_name) {
     chunks.push(`## GitHub source\n\nRepo: ${project.git_repo_full_name}\n`);

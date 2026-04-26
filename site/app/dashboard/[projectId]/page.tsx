@@ -43,6 +43,7 @@ type Project = {
   id: string;
   name: string;
   description: string | null;
+  notes: string | null;
   connected_at: string;
   git_host: string | null;
   git_repo_full_name: string | null;
@@ -131,7 +132,7 @@ export default async function ProjectDetailPage({
   const supabase = createClient(cookieStore);
 
   const SELECT_COLS =
-    "id, name, description, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at";
+    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at";
 
   const initialFetch = await supabase
     .from("projects")
@@ -342,6 +343,24 @@ export default async function ProjectDetailPage({
             defaultValue={project.description ?? ""}
             placeholder="What does this project do?"
             className="login-input"
+          />
+
+          <label className="form-label" htmlFor="settings_notes">
+            Project facts (the lens uses these as ground truth)
+          </label>
+          <p className="settings-hint">
+            Tell StackLense what you know about your stack — AI tools, hosting,
+            domain registrar, payment processor, anything the source code
+            can&rsquo;t reveal. The lens will treat these as confirmed facts and
+            build your blueprint around them.
+          </p>
+          <textarea
+            id="settings_notes"
+            name="notes"
+            rows={6}
+            defaultValue={project.notes ?? ""}
+            placeholder={`AI agent: Codex\nHosting: AWS ECS Fargate\nDomain registrar: GoDaddy\nPayment: Stripe`}
+            className="login-input settings-textarea"
           />
 
           <button type="submit" className="login-btn settings-save">
