@@ -13,31 +13,13 @@ import { AutoRefresh } from "./AutoRefresh";
 import { BlueprintTabs } from "./BlueprintTabs";
 import { VendorLogo } from "./VendorLogo";
 import { ExportButtons } from "./ExportButtons";
+import { AwsConnectionPanel } from "./AwsConnectionPanel";
+import { buildQuickCreateUrl } from "@/lib/cfn";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
 // transition from generating → ready without manual refresh.
 export const revalidate = 5;
-
-/**
- * AWS CloudFormation Quick Create requires `templateURL` and that URL must
- * point to an S3 bucket. We host the template in a public S3 bucket; the
- * URL lives in NEXT_PUBLIC_CFN_TEMPLATE_URL so we can swap buckets later
- * (e.g. when StackLense gets its own dedicated AWS account) without code
- * changes.
- */
-const CFN_TEMPLATE_URL =
-  process.env.NEXT_PUBLIC_CFN_TEMPLATE_URL ||
-  "https://stacklense-cfn-templates.s3.amazonaws.com/connect-stacklense.yaml";
-
-function buildQuickCreateUrl(token: string) {
-  const params = new URLSearchParams({
-    templateURL: CFN_TEMPLATE_URL,
-    stackName: "StackLenseConnect",
-    param_WebhookToken: token,
-  });
-  return `https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?${params.toString()}`;
-}
 
 type Project = {
   id: string;
@@ -60,6 +42,9 @@ type Project = {
   blueprint_progress: BlueprintProgress | null;
   auto_verify_at: string | null;
   aws_role_verified_at: string | null;
+  aws_role_last_checked_at: string | null;
+  aws_region: string | null;
+  cfn_template_version: string | null;
   discovery_snapshot: Record<string, unknown> | null;
   discovery_at: string | null;
 };
@@ -123,6 +108,8 @@ export default async function ProjectDetailPage({
     saved?: string;
     regenerating?: string;
     test_sent?: string;
+    conn_test?: string;
+    conn_msg?: string;
   }>;
 }) {
   const { projectId } = await params;
@@ -131,11 +118,18 @@ export default async function ProjectDetailPage({
   const savedFlash = !!sp.saved;
   const regeneratingFlash = !!sp.regenerating;
   const testSentFlash = !!sp.test_sent;
+  const connTestResult: "ok" | "fail" | null =
+    sp.conn_test === "ok"
+      ? "ok"
+      : sp.conn_test === "fail"
+      ? "fail"
+      : null;
+  const connTestMessage = sp.conn_msg ? decodeURIComponent(sp.conn_msg) : null;
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
   const SELECT_COLS =
-    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at, discovery_snapshot, discovery_at";
+    "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at, aws_role_last_checked_at, aws_region, cfn_template_version, discovery_snapshot, discovery_at";
 
   const initialFetch = await supabase
     .from("projects")
@@ -184,8 +178,19 @@ export default async function ProjectDetailPage({
   const hasGitHub = !!project.git_repo_full_name;
   const hasEcr = !!project.ecr_webhook_token;
   const cfnUrl = project.ecr_webhook_token
-    ? buildQuickCreateUrl(project.ecr_webhook_token)
+    ? buildQuickCreateUrl({
+        webhookToken: project.ecr_webhook_token,
+        region: project.aws_region ?? undefined,
+      })
     : null;
+  // The discovery snapshot stores errors[] in a typed shape; pull them
+  // out for the connection panel without leaking the full snapshot type.
+  const discoveryErrors =
+    (project.discovery_snapshot as
+      | {
+          errors?: Array<{ source: string; message: string }>;
+        }
+      | null)?.errors ?? null;
 
   return (
     <>
@@ -272,6 +277,22 @@ export default async function ProjectDetailPage({
           </dd>
         </dl>
       </section>
+
+      {hasEcr && project.ecr_aws_account_id && project.ecr_webhook_token && (
+        <AwsConnectionPanel
+          projectId={project.id}
+          awsAccountId={project.ecr_aws_account_id}
+          awsRegion={project.aws_region}
+          webhookToken={project.ecr_webhook_token}
+          awsRoleVerifiedAt={project.aws_role_verified_at}
+          awsRoleLastCheckedAt={project.aws_role_last_checked_at}
+          cfnTemplateVersion={project.cfn_template_version}
+          discoveryErrors={discoveryErrors}
+          discoveryAt={project.discovery_at}
+          lastTestResult={connTestResult}
+          lastTestMessage={connTestMessage}
+        />
+      )}
 
       <section className="project-section">
         <h2 className="dash-h2">Blueprint</h2>

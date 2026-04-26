@@ -77,25 +77,38 @@ export async function maybeAutoVerify(
     externalId: project.ecr_webhook_token,
   });
 
+  // Always record the attempt timestamp — distinguishes "we haven't
+  // checked in days" from "we checked recently and it failed".
+  const supabase = adminClient();
   if (!result.ok) {
+    await supabase
+      .from("projects")
+      .update({ aws_role_last_checked_at: new Date().toISOString() })
+      .eq("id", project.id);
     // Role doesn't exist yet (CFN stack not created/updated) or trust
     // policy doesn't match. Either way, we don't have ground to stand on.
     return { ran: false, reason: result.reason };
   }
 
   // Role is live. Mark verified and kick off blueprint generation. The
-  // generator's collectSourceContext will run full discovery.
-  const supabase = adminClient();
+  // generator's collectSourceContext will run full discovery, which is
+  // what separately stamps cfn_template_version (only when there are no
+  // permission errors) and overwrites aws_region with what was actually
+  // observed.
+  const now = new Date().toISOString();
   await supabase
     .from("projects")
-    .update({ aws_role_verified_at: new Date().toISOString() })
+    .update({
+      aws_role_verified_at: now,
+      aws_role_last_checked_at: now,
+    })
     .eq("id", project.id);
 
   await kickOffBlueprintGeneration(project.id);
   return { ran: true };
 }
 
-async function tryAssumeRole(args: {
+export async function tryAssumeRole(args: {
   accountId: string;
   externalId: string;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {

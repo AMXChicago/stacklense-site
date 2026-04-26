@@ -5,6 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import { waitUntil } from "@vercel/functions";
 import { blueprintFailedEmail, sendEmail } from "./email";
 import { discoverAwsResources, discoveryToPromptText } from "./aws-discovery";
+import { CFN_TEMPLATE_VERSION, summarizeDiscoveryErrors } from "./cfn";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
@@ -259,14 +260,27 @@ async function collectSourceContext(project: ProjectRow): Promise<string> {
       chunks.push(discoveryToPromptText(discovery));
       chunks.push("");
       // Save the snapshot so the Inventory tab can render the raw view
-      // without re-calling AWS APIs.
+      // without re-calling AWS APIs. Also stamp aws_region from what we
+      // actually observed, and — only when there are no permission errors
+      // — advance cfn_template_version to current. The version stamp is
+      // what makes the dashboard's "Update available" banner disappear.
+      const errSummary = summarizeDiscoveryErrors(discovery.errors);
+      const update: Record<string, unknown> = {
+        discovery_snapshot: discovery as unknown as Record<string, unknown>,
+        discovery_at: new Date().toISOString(),
+      };
+      if (discovery.region) {
+        update.aws_region = discovery.region;
+      }
+      if (!errSummary.hasPermissionGap) {
+        // Customer's stack has every permission the current template
+        // grants — they're up to date.
+        update.cfn_template_version = CFN_TEMPLATE_VERSION;
+      }
       const supabase = adminClient();
       await supabase
         .from("projects")
-        .update({
-          discovery_snapshot: discovery as unknown as Record<string, unknown>,
-          discovery_at: new Date().toISOString(),
-        })
+        .update(update)
         .eq("id", project.id);
     }
   }

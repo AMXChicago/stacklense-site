@@ -6,6 +6,7 @@ import { cookies, headers } from "next/headers";
 import { createHmac, randomBytes } from "crypto";
 import { createClient } from "@/utils/supabase/server";
 import { kickOffBlueprintGeneration } from "@/lib/blueprint";
+import { tryAssumeRole } from "@/lib/auto-verify";
 
 /**
  * Update name + description on a project. RLS ensures the user can only
@@ -141,6 +142,86 @@ export async function regenerateBlueprint(formData: FormData) {
 
   revalidatePath(`/dashboard/${projectId}`);
   redirect(`/dashboard/${projectId}?regenerating=1`);
+}
+
+/**
+ * Manually re-verify the AWS connection by attempting AssumeRole on the
+ * customer's read-only role. Use cases:
+ *
+ *   - Customer just updated their CFN stack and wants to confirm StackLense
+ *     can now reach the new permissions.
+ *   - The dashboard says "connection broken"; customer wants to retry
+ *     without waiting for the next page load to auto-verify.
+ *   - Debugging trust-policy or ExternalId mismatches.
+ *
+ * On success: stamps aws_role_verified_at + aws_role_last_checked_at and
+ * kicks off blueprint regeneration so any newly-grantable services get
+ * picked up. On failure: stamps aws_role_last_checked_at and surfaces the
+ * STS error message back to the user.
+ */
+export async function testAwsConnection(formData: FormData) {
+  const projectId = String(formData.get("project_id") ?? "");
+  if (!projectId) redirect("/dashboard");
+
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
+
+  const { data: project, error } = await supabase
+    .from("projects")
+    .select(
+      "id, ecr_aws_account_id, ecr_webhook_token, blueprint_status"
+    )
+    .eq("id", projectId)
+    .single();
+  if (error || !project) redirect(`/dashboard/${projectId}?error=Not%20found`);
+
+  if (!project.ecr_aws_account_id || !project.ecr_webhook_token) {
+    redirect(
+      `/dashboard/${projectId}?conn_test=fail&conn_msg=${encodeURIComponent(
+        "This project isn't connected to AWS. Connect via CloudFormation first."
+      )}`
+    );
+  }
+
+  const result = await tryAssumeRole({
+    accountId: project.ecr_aws_account_id,
+    externalId: project.ecr_webhook_token,
+  });
+
+  const now = new Date().toISOString();
+  if (!result.ok) {
+    await supabase
+      .from("projects")
+      .update({ aws_role_last_checked_at: now })
+      .eq("id", projectId);
+    revalidatePath(`/dashboard/${projectId}`);
+    redirect(
+      `/dashboard/${projectId}?conn_test=fail&conn_msg=${encodeURIComponent(
+        // Trim STS error to keep the URL reasonable; full message is
+        // available in server logs.
+        result.reason.slice(0, 240)
+      )}`
+    );
+  }
+
+  await supabase
+    .from("projects")
+    .update({
+      aws_role_verified_at: now,
+      aws_role_last_checked_at: now,
+    })
+    .eq("id", projectId);
+
+  // Re-run discovery so the inventory + blueprint reflect any new perms
+  // the customer just granted (e.g. they updated the CFN stack and
+  // pressed this button to confirm). Skip if a generation is already
+  // running so we don't trample it.
+  if (project.blueprint_status !== "generating") {
+    await kickOffBlueprintGeneration(projectId);
+  }
+
+  revalidatePath(`/dashboard/${projectId}`);
+  redirect(`/dashboard/${projectId}?conn_test=ok`);
 }
 
 /**
