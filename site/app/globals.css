@@ -2515,39 +2515,131 @@ a.bp-cat-item-name:hover {
   cursor: progress;
 }
 
-.aws-conn-guidance {
+/* Hero "Action required / Everything ok" card — top of the AWS panel.
+ * Drives the customer's next move. State variants change accent only,
+ * not structure, so the card always looks the same shape. */
+.aws-conn-action {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--border2);
+  background: var(--bg);
+  margin-bottom: 18px;
+  position: relative;
+}
+.aws-conn-action::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 10px 0 0 10px;
+}
+.aws-conn-action-ok::before {
+  background: var(--green);
+}
+.aws-conn-action-warn::before {
+  background: #f0b400;
+}
+.aws-conn-action-err::before {
+  background: #ff6b6b;
+}
+.aws-conn-action-pending::before {
+  background: var(--ink3);
+}
+.aws-conn-action-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.aws-conn-action-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.aws-conn-action-copy {
+  font-size: 14px;
+  color: var(--ink2);
+  line-height: 1.6;
+  margin: 0;
+}
+.aws-conn-action-meta {
+  display: block;
+  font-size: 12px;
+  color: var(--ink3);
+  margin-top: 6px;
+}
+.aws-conn-action-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.aws-conn-action-buttons form {
+  display: inline-flex;
+}
+
+/* Primary CTA — used for the single most-important action on the panel
+ * (Update AWS connection). More prominent than the regular aws-action-btn. */
+.aws-action-btn-primary {
+  background: var(--green);
+  color: var(--bg);
+  border-color: var(--green);
+  font-weight: 600;
+}
+.aws-action-btn-primary:hover {
+  background: rgba(61, 214, 140, 0.85);
+  color: var(--bg);
+}
+
+/* Service chip list — used inside the action card to show which AWS
+ * services are missing. Each chip is a small rounded tag, not a bullet. */
+.aws-conn-chip-list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aws-conn-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  color: var(--ink2);
+  background: var(--bg2);
+}
+.aws-conn-chip-warn {
+  color: #f0b400;
+  border-color: rgba(240, 180, 0, 0.4);
+  background: rgba(240, 180, 0, 0.08);
+}
+
+.aws-conn-cause-list {
+  margin: 4px 0 0;
+  padding-left: 22px;
   font-size: 13px;
   color: var(--ink2);
   line-height: 1.6;
-  margin-bottom: 18px;
-  padding: 14px 16px;
-  border-left: 2px solid var(--ink3);
-  background: var(--bg);
-  border-radius: 0 6px 6px 0;
-}
-.aws-conn-guidance p {
-  margin: 0;
-}
-.aws-conn-guidance p + p {
-  margin-top: 10px;
-}
-.aws-conn-guidance-changelog {
-  font-size: 12px;
-  color: var(--ink3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.aws-conn-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-.aws-conn-actions form {
-  display: inline-flex;
-}
-.aws-conn-actions form button {
-  cursor: pointer;
+/* Mid-state warning flash — shown when the action ran but the panel
+ * isn't fully healthy. Distinct from the bright green "ok" flash so the
+ * customer can tell at a glance there's still work to do. */
+.aws-conn-flash-warn {
+  color: #f0b400;
+  background: rgba(240, 180, 0, 0.08);
+  border: 1px solid rgba(240, 180, 0, 0.3);
 }
 
 .aws-conn-update {
@@ -2708,27 +2800,133 @@ a.bp-cat-item-name:hover {
   flex-direction: column;
   gap: 6px;
 }
-.aws-conn-errors-row {
+.aws-conn-errors-block + .aws-conn-errors-block {
+  margin-top: 18px;
+}
+
+.aws-conn-error-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Structured per-error card — service name + parsed IAM action +
+ * status tag on top, raw AWS message tucked in a disclosure underneath.
+ * Customer scans the heads of all 7 cards in 3 seconds; only opens
+ * raw text if they actually need it. */
+.aws-conn-error-card {
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aws-conn-error-card-warn {
+  border-color: rgba(240, 180, 0, 0.25);
+  background: rgba(240, 180, 0, 0.04);
+}
+.aws-conn-error-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.aws-conn-error-card-service {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.aws-conn-error-card-action {
+  font-size: 12px;
+  color: var(--ink2);
+}
+.aws-conn-error-card-action code {
+  font-size: 11px;
+}
+.aws-conn-error-card-tag {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.aws-conn-error-card-tag-warn {
+  color: #f0b400;
+  background: rgba(240, 180, 0, 0.12);
+  border: 1px solid rgba(240, 180, 0, 0.3);
+}
+.aws-conn-error-card-tag-info {
+  color: var(--ink3);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+}
+.aws-conn-error-card-raw {
+  border-top: 1px dashed var(--border2);
+  padding-top: 8px;
+}
+.aws-conn-error-card-raw summary {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.aws-conn-error-card-raw summary:hover {
+  color: var(--ink);
+}
+.aws-conn-error-card-pre {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink2);
-  background: var(--bg);
+  background: var(--bg2);
   padding: 10px 12px;
   border-radius: 6px;
-  border: 1px solid var(--border2);
+  margin: 8px 0 0;
+  white-space: pre-wrap;
   word-break: break-word;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  line-height: 1.5;
 }
-.aws-conn-errors-source {
+
+/* "I already updated, what now?" mini-FAQ — shown inside the
+ * Diagnostics drawer when a permission gap is detected. Addresses the
+ * single most common confusion (mis-clicked the Update wizard). */
+.aws-conn-faq {
+  border: 1px dashed var(--border2);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: var(--bg2);
+  margin: 8px 0 18px;
+}
+.aws-conn-faq-title {
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink);
-  font-size: 12px;
+  margin: 0 0 8px;
 }
-.aws-conn-errors-msg {
+.aws-conn-faq-line {
+  font-size: 12px;
   color: var(--ink2);
-  line-height: 1.5;
+  margin: 6px 0;
+  line-height: 1.55;
+}
+.aws-conn-faq-list {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink2);
+  line-height: 1.55;
+}
+.aws-conn-faq-list em {
+  font-style: normal;
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .aws-conn-dl {
