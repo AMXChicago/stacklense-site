@@ -397,10 +397,20 @@ function ProjectStatusPanel({
 
           {!failed && active?.key === "connected" && isEcr && (
             <>
-              <p className="status-action-text">
-                Open AWS to finish setup. This adds a small piece to your AWS
-                account so we know when you ship a new version. Once you do —
-                or click the test button — your blueprint goes live.
+              <p className="status-action-headline">Two steps left:</p>
+              <ol className="status-action-steps">
+                <li>
+                  Click <strong>Open AWS setup</strong> below. In AWS, click{" "}
+                  <strong>Create stack</strong> (everything&rsquo;s
+                  pre-filled). Wait about a minute for it to finish.
+                </li>
+                <li>
+                  Ship a new version of your app — or click{" "}
+                  <strong>Send a test update</strong> to fake one.
+                </li>
+              </ol>
+              <p className="status-action-foot">
+                Your blueprint will go live automatically.
               </p>
               <div className="status-buttons">
                 {cfnUrl && (
@@ -413,13 +423,13 @@ function ProjectStatusPanel({
                     Open AWS setup →
                   </a>
                 )}
+                <TestEventButton projectId={project.id} />
                 <Link
                   href={`/dashboard/${project.id}/setup-manual`}
                   className="bp-banner-link"
                 >
                   Set up manually →
                 </Link>
-                <TestEventButton projectId={project.id} />
               </div>
             </>
           )}
@@ -437,11 +447,19 @@ function ProjectStatusPanel({
             active?.key === "live" &&
             project.blueprint_status !== "generating" && (
               <>
-                <p className="status-action-text">
-                  {isGitHub
-                    ? "Setup is connected. Push code to your repo and your first blueprint will build automatically."
-                    : "Setup is connected. Ship a new version of your app — or click the test button to fake an update and watch your blueprint build."}
-                </p>
+                <p className="status-action-headline">One step left:</p>
+                {isGitHub ? (
+                  <p className="status-action-foot">
+                    Push code to your repo. Your first blueprint will build
+                    automatically.
+                  </p>
+                ) : (
+                  <p className="status-action-foot">
+                    Ship a new version of your app — or click{" "}
+                    <strong>Send a test update</strong> to fake one and watch
+                    your blueprint build.
+                  </p>
+                )}
                 <div className="status-buttons">
                   {isGitHub && project.git_repo_full_name && (
                     <a

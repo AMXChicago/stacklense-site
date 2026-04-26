@@ -1852,6 +1852,44 @@ footer {
   font-weight: 500;
 }
 
+.status-action-headline {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 14px;
+}
+
+.status-action-steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.status-action-steps li {
+  margin-bottom: 8px;
+}
+.status-action-steps li:last-child {
+  margin-bottom: 0;
+}
+.status-action-steps strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.status-action-foot {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+.status-action-foot strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 .status-action-failed {
   color: var(--red);
   font-family: var(--mono);
