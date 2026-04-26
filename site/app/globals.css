@@ -1896,6 +1896,19 @@ footer {
   font-size: 12px;
 }
 
+.status-action-stale {
+  color: var(--amber);
+  font-size: 13px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.status-action-stale strong {
+  color: var(--amber);
+  font-weight: 500;
+}
+
 .status-buttons {
   display: flex;
   align-items: center;

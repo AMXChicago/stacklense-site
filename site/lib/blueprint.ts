@@ -3,6 +3,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServerClient } from "@supabase/ssr";
 import { waitUntil } from "@vercel/functions";
+import { blueprintFailedEmail, sendEmail } from "./email";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
@@ -66,6 +67,17 @@ export async function kickOffBlueprintGeneration(projectId: string) {
  */
 async function generateBlueprint(projectId: string) {
   const supabase = adminClient();
+
+  // Read the prior status BEFORE we change it so we can decide whether
+  // to email on failure (only on transitions into 'failed', not on every
+  // retry attempt that fails again).
+  const { data: priorRow } = await supabase
+    .from("projects")
+    .select("blueprint_status, user_id, name")
+    .eq("id", projectId)
+    .single();
+  const priorStatus = priorRow?.blueprint_status ?? null;
+
   try {
     const { data: project, error } = await supabase
       .from("projects")
@@ -101,6 +113,60 @@ async function generateBlueprint(projectId: string) {
         blueprint_error: message,
       })
       .eq("id", projectId);
+
+    // Only email on a transition INTO failed — don't spam users who hit
+    // Regenerate on a project that's already in a failed state.
+    if (priorStatus !== "failed" && priorRow?.user_id && priorRow?.name) {
+      await sendBlueprintFailedEmail({
+        userId: priorRow.user_id,
+        projectId,
+        projectName: priorRow.name,
+        error: message,
+      });
+    }
+  }
+}
+
+/**
+ * Look up the user's email by their auth user id and send the failure
+ * notification. Failures here are logged but never re-thrown — we don't
+ * want email problems to corrupt the blueprint pipeline state.
+ */
+async function sendBlueprintFailedEmail(args: {
+  userId: string;
+  projectId: string;
+  projectName: string;
+  error: string;
+}) {
+  try {
+    const supabase = adminClient();
+    const { data, error } = await supabase.auth.admin.getUserById(args.userId);
+    const email = data?.user?.email;
+    if (error || !email) {
+      console.warn(
+        "[blueprint] could not resolve user email for failure alert:",
+        error?.message
+      );
+      return;
+    }
+    const tmpl = blueprintFailedEmail({
+      projectName: args.projectName,
+      projectId: args.projectId,
+      error: args.error,
+    });
+    const result = await sendEmail({
+      to: email,
+      subject: tmpl.subject,
+      html: tmpl.html,
+    });
+    if (!result.ok) {
+      console.warn("[blueprint] failure email did not send:", result.reason);
+    }
+  } catch (e) {
+    console.error(
+      "[blueprint] sendBlueprintFailedEmail threw:",
+      e instanceof Error ? e.message : String(e)
+    );
   }
 }
 
