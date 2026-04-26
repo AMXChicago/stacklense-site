@@ -1744,6 +1744,9 @@ footer {
   padding: 0;
   position: relative;
 }
+.status-timeline-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
 
 .status-step {
   display: flex;

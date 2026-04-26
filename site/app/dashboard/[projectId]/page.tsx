@@ -299,7 +299,7 @@ export default async function ProjectDetailPage({
 type StageStatus = "done" | "active" | "pending" | "failed";
 
 type Stage = {
-  key: "created" | "connected" | "first_event" | "ready";
+  key: "created" | "connected" | "live";
   label: string;
   status: StageStatus;
 };
@@ -310,28 +310,27 @@ function computeStages(
 ): Stage[] {
   const isGitHub = !!project.git_repo_full_name;
 
-  // GitHub: we know wiring is done if we have a webhook ID.
-  // AWS: we can't verify CFN stack creation directly — infer from receiving an event.
-  const wired = isGitHub
+  // "Connected" means StackLense is verified to be receiving signal from
+  // the project. For GitHub that's webhook-installed (we did it ourselves
+  // via API). For AWS we can't check directly, so we infer from any event
+  // having arrived.
+  const connected = isGitHub
     ? !!project.git_webhook_id
     : deploys.length > 0;
-  const hasEvent = deploys.length > 0;
   const blueprintReady = project.blueprint_status === "ready";
   const blueprintFailed = project.blueprint_status === "failed";
 
   const raw = [
     { key: "created" as const, label: "Created", done: true, failed: false },
-    { key: "connected" as const, label: "Connected", done: wired, failed: false },
-    { key: "first_event" as const, label: "First update", done: hasEvent, failed: false },
+    { key: "connected" as const, label: "Connected", done: connected, failed: false },
     {
-      key: "ready" as const,
-      label: "Blueprint",
+      key: "live" as const,
+      label: "Live blueprint",
       done: blueprintReady,
       failed: blueprintFailed,
     },
   ];
 
-  // First non-done stage is "active"; everything after is "pending" (unless failed).
   let foundActive = false;
   return raw.map((s): Stage => {
     let status: StageStatus;
@@ -364,8 +363,9 @@ function ProjectStatusPanel({
 
   return (
     <section className="project-section">
+      <h2 className="dash-h2">Status</h2>
       <div className="status-card">
-        <ol className="status-timeline">
+        <ol className="status-timeline status-timeline-3">
           {stages.map((s, i) => (
             <li
               key={s.key}
@@ -386,7 +386,7 @@ function ProjectStatusPanel({
           {failed && (
             <>
               <p className="status-action-text status-action-failed">
-                <strong>Blueprint generation failed.</strong>{" "}
+                <strong>Couldn&rsquo;t build the blueprint.</strong>{" "}
                 {project.blueprint_error ?? "Unknown error."}
               </p>
               <div className="status-buttons">
@@ -400,7 +400,7 @@ function ProjectStatusPanel({
               <p className="status-action-text">
                 Open AWS to finish setup. This adds a small piece to your AWS
                 account so we know when you ship a new version. Once you do —
-                or click the test button — this step turns green.
+                or click the test button — your blueprint goes live.
               </p>
               <div className="status-buttons">
                 {cfnUrl && (
@@ -424,41 +424,45 @@ function ProjectStatusPanel({
             </>
           )}
 
-          {!failed && active?.key === "first_event" && (
-            <>
+          {!failed &&
+            active?.key === "live" &&
+            project.blueprint_status === "generating" && (
               <p className="status-action-text">
-                {isGitHub
-                  ? "Setup is connected. Push code to your repo to generate your first blueprint."
-                  : "Setup is connected. Ship a new version of your app — or click the test button to fake an update and verify everything works."}
+                <span className="bp-spinner" /> Building your blueprint right
+                now — usually 15–30 seconds. This page refreshes automatically.
               </p>
-              <div className="status-buttons">
-                {isGitHub && project.git_repo_full_name && (
-                  <a
-                    href={`https://github.com/${project.git_repo_full_name}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bp-banner-link"
-                  >
-                    Open repo →
-                  </a>
-                )}
-                {isEcr && <TestEventButton projectId={project.id} />}
-              </div>
-            </>
-          )}
+            )}
 
-          {!failed && active?.key === "ready" && (
-            <p className="status-action-text">
-              <span className="bp-spinner" /> Update received. Building your
-              blueprint — usually takes 15–30 seconds. This page refreshes
-              automatically.
-            </p>
-          )}
+          {!failed &&
+            active?.key === "live" &&
+            project.blueprint_status !== "generating" && (
+              <>
+                <p className="status-action-text">
+                  {isGitHub
+                    ? "Setup is connected. Push code to your repo and your first blueprint will build automatically."
+                    : "Setup is connected. Ship a new version of your app — or click the test button to fake an update and watch your blueprint build."}
+                </p>
+                <div className="status-buttons">
+                  {isGitHub && project.git_repo_full_name && (
+                    <a
+                      href={`https://github.com/${project.git_repo_full_name}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bp-banner-link"
+                    >
+                      Open repo →
+                    </a>
+                  )}
+                  {isEcr && <TestEventButton projectId={project.id} />}
+                </div>
+              </>
+            )}
 
           {allDone && (
             <>
               <p className="status-action-text">
-                ✓ Everything&rsquo;s connected.{" "}
+                ✓ Your blueprint is live and will rebuild every time you
+                ship something new.{" "}
                 {lastDeploy &&
                   `Last update ${formatRelative(lastDeploy.created_at)}.`}
               </p>
