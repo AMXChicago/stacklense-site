@@ -379,34 +379,60 @@ function UpdateInstructions({
 }) {
   return (
     <div className="aws-conn-update">
-      <h3 className="aws-conn-update-title">How to update</h3>
+      <h3 className="aws-conn-update-title">How to update (≈60 seconds)</h3>
       <ol className="aws-conn-update-steps">
         <li>
           Click <strong>Update AWS connection</strong> above. AWS Console
-          opens to your <code className="aws-code">{stackName}</code>{" "}
-          stack.
+          opens to your stack list filtered to{" "}
+          <code className="aws-code">{stackName}</code>. Click the stack
+          name to open it.
         </li>
         <li>
-          Click the stack name → <strong>Update</strong> →{" "}
-          <strong>Replace current template</strong> →{" "}
-          <strong>Amazon S3 URL</strong>.
+          Click the <strong>Update</strong> button (top right).
         </li>
         <li>
-          Paste this template URL:
+          On <strong>Update method</strong>, choose{" "}
+          <strong>Make a direct update</strong>. Click <strong>Next</strong>.
+        </li>
+        <li>
+          On <strong>Prepare template</strong>, choose{" "}
+          <strong>Replace existing template</strong>.
+        </li>
+        <li>
+          On <strong>Specify template</strong>, choose{" "}
+          <strong>Amazon S3 URL</strong> and paste this:
           <div className="aws-conn-copy-row">
             <code className="aws-code aws-code-block">{templateUrl}</code>
             <CopyButton value={templateUrl} label="Copy URL" />
           </div>
+          Click <strong>Next</strong>.
         </li>
         <li>
-          Click <strong>Next</strong> through to the review page, check
-          the IAM acknowledgement box, click{" "}
-          <strong>Submit</strong>. Wait for{" "}
-          <code className="aws-code">UPDATE_COMPLETE</code>.
+          On <strong>Specify stack details</strong>, leave the{" "}
+          <code className="aws-code">WebhookToken</code> value alone (it
+          must stay the same so events keep matching this project). Click{" "}
+          <strong>Next</strong>.
         </li>
         <li>
-          Come back here and click{" "}
-          <strong>Test connection</strong> to confirm.
+          On <strong>Configure stack options</strong>, leave defaults and
+          click <strong>Next</strong>.
+        </li>
+        <li>
+          On the review page, scroll to the bottom and check{" "}
+          <strong>
+            &ldquo;I acknowledge that AWS CloudFormation might create IAM
+            resources&rdquo;
+          </strong>
+          . Click <strong>Submit</strong>.
+        </li>
+        <li>
+          Wait for the stack status to flip to{" "}
+          <code className="aws-code">UPDATE_COMPLETE</code> (~30 seconds).
+        </li>
+        <li>
+          Come back here and click <strong>Test connection</strong> — the
+          status pill flips to <strong>Connection healthy</strong> once
+          discovery confirms the new permissions.
         </li>
       </ol>
     </div>
