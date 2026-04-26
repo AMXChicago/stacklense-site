@@ -2,7 +2,14 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleted?: string }>;
+}) {
+  const sp = await searchParams;
+  const showDeletedFlash = !!sp.deleted;
+
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
@@ -22,6 +29,10 @@ export default async function DashboardPage() {
         <h1 className="dash-h1">Welcome back</h1>
         <p className="dash-sub">{user?.email}</p>
       </div>
+
+      {showDeletedFlash && (
+        <div className="dash-flash">✓ Project deleted.</div>
+      )}
 
       {!projects || projects.length === 0 ? (
         <div className="dash-empty">

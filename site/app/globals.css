@@ -1578,3 +1578,82 @@ footer {
   color: var(--ink3);
   margin-top: 8px;
 }
+
+/* ============================================================================
+   PROJECT SETTINGS (edit + delete)
+   ============================================================================ */
+
+.settings-flash {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--green);
+  border: 1px solid rgba(61, 214, 140, 0.3);
+  background: var(--green3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 20px;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  margin-bottom: 16px;
+}
+
+.settings-save {
+  margin-top: 16px;
+  width: auto;
+  align-self: flex-start;
+  padding: 10px 24px;
+}
+
+.settings-danger {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: linear-gradient(0deg, var(--bg2), rgba(239, 68, 68, 0.04));
+}
+
+.settings-danger-title {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--red);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-danger-desc {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+
+.dangerous-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 10px 20px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  color: var(--red);
+  background: rgba(239, 68, 68, 0.06);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.dangerous-btn:hover { background: rgba(239, 68, 68, 0.14); }
+
+.dash-flash {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink2);
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 24px;
+}

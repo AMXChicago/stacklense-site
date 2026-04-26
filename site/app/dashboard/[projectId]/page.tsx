@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { createClient } from "@/utils/supabase/server";
+import { updateProject } from "./actions";
+import { DeleteProjectButton } from "./DeleteProjectButton";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
@@ -85,10 +87,15 @@ type BlueprintShape = {
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ error?: string; saved?: string }>;
 }) {
   const { projectId } = await params;
+  const sp = await searchParams;
+  const errorMsg = sp.error ? decodeURIComponent(sp.error) : null;
+  const savedFlash = !!sp.saved;
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
@@ -217,6 +224,61 @@ export default async function ProjectDetailPage({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="project-section">
+        <h2 className="dash-h2">Settings</h2>
+
+        {errorMsg && <div className="login-error">{errorMsg}</div>}
+        {savedFlash && (
+          <div className="settings-flash">✓ Changes saved.</div>
+        )}
+
+        <form action={updateProject} className="settings-card">
+          <input type="hidden" name="project_id" value={project.id} />
+
+          <label className="form-label" htmlFor="settings_name">
+            Project name
+          </label>
+          <input
+            id="settings_name"
+            name="name"
+            type="text"
+            required
+            defaultValue={project.name}
+            className="login-input"
+          />
+
+          <label className="form-label" htmlFor="settings_description">
+            Description
+          </label>
+          <input
+            id="settings_description"
+            name="description"
+            type="text"
+            defaultValue={project.description ?? ""}
+            placeholder="What does this project do?"
+            className="login-input"
+          />
+
+          <button type="submit" className="login-btn settings-save">
+            Save changes
+          </button>
+        </form>
+
+        <div className="settings-card settings-danger">
+          <div className="settings-danger-title">Danger zone</div>
+          <p className="settings-danger-desc">
+            Deleting removes the project, all deploy history, and the
+            generated blueprint. {hasGitHub && "Your GitHub webhook is also removed (best-effort)."} {hasEcr && "Your AWS CloudFormation stack stays in place; delete it manually if you no longer want events to fire."} This cannot be undone.
+          </p>
+          <DeleteProjectButton
+            projectId={project.id}
+            projectName={project.name}
+            hasGitHub={hasGitHub}
+            hasEcr={hasEcr}
+          />
+        </div>
       </section>
     </>
   );
