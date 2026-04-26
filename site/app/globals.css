@@ -2197,7 +2197,10 @@ a.bp-cat-item-name:hover {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  /* Sits ON TOP of the cards. Paths are routed edge-to-edge, so the
+   * visible portion is in the gaps between cards. pointer-events:
+   * none lets card clicks still register through the overlay. */
+  z-index: 2;
 }
 
 /* Fixed 4-column grid with explicit grid-template-areas so the SVG
