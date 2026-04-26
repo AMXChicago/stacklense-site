@@ -2075,6 +2075,266 @@ a.bp-cat-item-name:hover {
 }
 
 /* ============================================================================
+   BLUEPRINT ARCHITECTURE DIAGRAM
+   ============================================================================
+   Project hero + platform filter row + React Flow architecture canvas.
+   The canvas is styled to feel native to the page: no canvas border,
+   no controls chrome, no minimap. Node and edge styling matches our
+   existing card system. */
+
+.arch-board {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+/* Project hero — compact version of the project identity block. */
+.arch-hero {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 4px 4px 22px;
+  border-bottom: 1px solid var(--border2);
+}
+.arch-hero-mark {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    rgba(61, 214, 140, 0.18),
+    rgba(168, 85, 247, 0.18)
+  );
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.arch-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.arch-hero-name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.arch-hero-summary {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink2);
+  line-height: 1.55;
+  max-width: 60ch;
+}
+.arch-hero-stats {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ink3);
+  font-family: var(--mono);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.arch-hero-stats strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Platform filter row — clickable chips for each platform with vendor
+ * logo + name + count. Click toggles highlight mode for that platform. */
+.arch-platforms {
+  padding: 20px 4px 16px;
+  border-bottom: 1px solid var(--border2);
+}
+.arch-platforms-label {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.arch-platforms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.arch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  background: var(--bg);
+  color: var(--ink2);
+  font-family: var(--sans);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.arch-chip:hover {
+  border-color: var(--ink3);
+  color: var(--ink);
+}
+.arch-chip-active {
+  border-color: var(--chip-color, var(--green));
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--chip-color, var(--green));
+  background: var(--bg3);
+}
+.arch-chip-logo {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.arch-chip-logo .vendor-logo,
+.arch-chip-logo .vendor-fallback {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+}
+.arch-chip-name {
+  font-weight: 500;
+}
+.arch-chip-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+  background: var(--bg2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.arch-chip-active .arch-chip-count {
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* Architecture canvas — wraps React Flow. The container has the
+ * page's bg, no border (canvas is just the flow surface), no chrome. */
+.arch-canvas {
+  margin-top: 22px;
+  width: 100%;
+  background: var(--bg);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+.arch-canvas .react-flow__renderer { background: transparent; }
+.arch-canvas .react-flow__background { background: transparent; }
+
+/* Component node — compact tile with vendor logo on the left, name +
+ * vendor stacked on the right, platform-coloured top border. Borders
+ * pick up --arch-color set per node. */
+.arch-node {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-top: 3px solid var(--arch-color, var(--ink3));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: opacity 0.2s, transform 0.15s, border-color 0.15s, background 0.15s;
+  box-sizing: border-box;
+}
+.arch-node-link {
+  cursor: pointer;
+}
+.arch-node-link:hover {
+  border-color: var(--arch-color, var(--ink3));
+  transform: translateY(-1px);
+  background: var(--bg3);
+}
+.arch-node-dimmed {
+  opacity: 0.25;
+}
+.arch-node-logo {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.arch-node-logo .vendor-logo,
+.arch-node-logo .vendor-fallback {
+  width: 32px;
+  height: 32px;
+}
+.arch-node-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.arch-node-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arch-node-vendor {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arch-node-arrow {
+  font-size: 12px;
+  color: var(--ink3);
+  flex-shrink: 0;
+  transition: transform 0.15s, color 0.15s;
+}
+.arch-node-link:hover .arch-node-arrow {
+  color: var(--arch-color, var(--green));
+  transform: translate(2px, -2px);
+}
+
+/* React Flow internals — strip out the chrome that makes the canvas
+ * feel like a separate widget. */
+.arch-canvas .react-flow__node {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.arch-canvas .react-flow__handle {
+  background: transparent;
+  border: none;
+}
+.arch-canvas .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+@media (max-width: 720px) {
+  .arch-board { padding: 18px; }
+  .arch-hero { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .arch-hero-mark { width: 52px; height: 52px; font-size: 18px; }
+  .arch-hero-name { font-size: 20px; }
+}
+
+/* ============================================================================
    BLUEPRINT BOARD (project hero + category grid)
    ============================================================================
    The diagram view. Reads top-down: project hero (name + summary +
