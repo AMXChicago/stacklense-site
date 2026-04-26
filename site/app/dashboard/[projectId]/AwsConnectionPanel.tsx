@@ -168,7 +168,13 @@ export function AwsConnectionPanel(props: Props) {
         )}
 
         {errSummary.total > 0 && (
-          <DiscoveryErrorList summary={errSummary} />
+          <DiscoveryErrorList
+            summary={errSummary}
+            // Open by default when there's a permission gap so the
+            // customer sees exactly which AWS API call failed without
+            // having to click. They almost certainly want this info.
+            defaultOpen={errSummary.hasPermissionGap}
+          />
         )}
 
         <details className="aws-conn-details">
@@ -330,17 +336,29 @@ function ConnectionGuidance({
   }
 
   if (state === "permission-gap") {
+    // Show the failing service names in the headline so the customer
+    // doesn't have to expand the error list to see what's broken. Dedupe
+    // and pretty-print to a comma list.
+    const failingServices = Array.from(
+      new Set(errSummary.accessDenied.map((e) => prettyServiceName(e.source)))
+    );
     return (
       <div className="aws-conn-guidance">
         <p>
           <strong>
             We assumed the role but couldn&rsquo;t read{" "}
             {errSummary.accessDenied.length} AWS service
-            {errSummary.accessDenied.length === 1 ? "" : "s"}.
+            {errSummary.accessDenied.length === 1 ? "" : "s"}:
           </strong>{" "}
+          {failingServices.join(", ")}.
+        </p>
+        <p>
           The most common cause is a CloudFormation stack that hasn&rsquo;t
           been updated since StackLense added new discovery permissions.
-          Click <strong>Update AWS connection</strong> below to fix it.
+          Click <strong>Update AWS connection</strong> below — and if
+          you&rsquo;ve already updated and still see this, expand{" "}
+          <em>Last discovery had errors</em> for the verbatim AWS error
+          messages.
         </p>
       </div>
     );
@@ -487,9 +505,15 @@ function UpdateInstructions({
   );
 }
 
-function DiscoveryErrorList({ summary }: { summary: DiscoveryErrorSummary }) {
+function DiscoveryErrorList({
+  summary,
+  defaultOpen,
+}: {
+  summary: DiscoveryErrorSummary;
+  defaultOpen?: boolean;
+}) {
   return (
-    <details className="aws-conn-errors">
+    <details className="aws-conn-errors" open={defaultOpen}>
       <summary>
         Last discovery had {summary.total} error
         {summary.total === 1 ? "" : "s"}
@@ -509,7 +533,10 @@ function DiscoveryErrorList({ summary }: { summary: DiscoveryErrorSummary }) {
           <ul className="aws-conn-errors-list">
             {summary.accessDenied.map((e, i) => (
               <li key={`ad-${i}`} className="aws-conn-errors-row">
-                <code className="aws-code">{e.source}</code>: {e.message}
+                <strong className="aws-conn-errors-source">
+                  {prettyServiceName(e.source)}
+                </strong>
+                <span className="aws-conn-errors-msg">{e.message}</span>
               </li>
             ))}
           </ul>
@@ -521,7 +548,10 @@ function DiscoveryErrorList({ summary }: { summary: DiscoveryErrorSummary }) {
           <ul className="aws-conn-errors-list">
             {summary.other.map((e, i) => (
               <li key={`o-${i}`} className="aws-conn-errors-row">
-                <code className="aws-code">{e.source}</code>: {e.message}
+                <strong className="aws-conn-errors-source">
+                  {prettyServiceName(e.source)}
+                </strong>
+                <span className="aws-conn-errors-msg">{e.message}</span>
               </li>
             ))}
           </ul>
@@ -529,6 +559,37 @@ function DiscoveryErrorList({ summary }: { summary: DiscoveryErrorSummary }) {
       )}
     </details>
   );
+}
+
+/**
+ * Map the discovery `source` strings (which are the internal
+ * Promise.all keys: "ses-identities", "waf", "event-buses", etc.)
+ * to friendly service names a customer recognises.
+ */
+function prettyServiceName(source: string): string {
+  const map: Record<string, string> = {
+    ecr: "ECR",
+    ecs: "ECS",
+    s3: "S3",
+    logs: "CloudWatch Logs",
+    elb: "Load balancers (ELB)",
+    route53: "Route 53",
+    secrets: "Secrets Manager",
+    lambda: "Lambda",
+    cloudfront: "CloudFront",
+    "rds-instances": "RDS instances",
+    "rds-clusters": "RDS clusters",
+    dynamodb: "DynamoDB",
+    "ses-identities": "SES identities",
+    "ses-config-sets": "SES configuration sets",
+    waf: "WAF",
+    acm: "ACM certificates",
+    "event-buses": "EventBridge buses",
+    sns: "SNS",
+    sqs: "SQS",
+    cognito: "Cognito",
+  };
+  return map[source] ?? source;
 }
 
 function formatRelative(iso: string): string {

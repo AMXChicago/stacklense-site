@@ -2713,10 +2713,22 @@ a.bp-cat-item-name:hover {
   font-size: 11px;
   color: var(--ink2);
   background: var(--bg);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--border2);
   word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.aws-conn-errors-source {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 12px;
+}
+.aws-conn-errors-msg {
+  color: var(--ink2);
+  line-height: 1.5;
 }
 
 .aws-conn-dl {
