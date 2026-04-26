@@ -115,10 +115,13 @@ export function vendorLogoUrl(name: string | undefined | null): string | null {
   if (!trimmed) return null;
   for (const [pattern, domain] of VENDOR_TO_DOMAIN) {
     if (pattern.test(trimmed)) {
-      // DuckDuckGo's IP3 favicon service. Free, no API key. Returns
-      // the company's favicon at the best available resolution
-      // (typically 32-256px depending on what they publish).
-      return `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+      // Google's S2 favicon service. Free, no API key. The `sz=128`
+      // parameter requests a high-resolution version where available
+      // (AWS, OpenAI, Supabase, Anthropic, Stripe etc. all publish
+      // 128px favicons). Higher resolution than DuckDuckGo's IP3
+      // service, which returns 16×16 for major brands like AWS and
+      // GitHub — those upscale to a fuzzy blob at 44px display size.
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
     }
   }
   return null;

@@ -129,22 +129,34 @@ const GRID_AREAS: Array<Array<string>> = [
 ];
 
 /**
- * Canonical architectural flows. Always rendered when both ends have
- * components. The LLM's component-level connections are aggregated to
- * category level and merged in, so the diagram reflects the actual
- * project too.
+ * Canonical architectural flows. Pruned to four cleanly-routable
+ * connections that tell the core story without producing visual
+ * mess:
+ *
+ *   - App framework "runs on" Hosting (diagonal across rows)
+ *   - DNS "resolves to" Hosting (vertical, same column)
+ *   - Hosting "reads / writes" Data (horizontal, adjacent)
+ *   - Hosting "logs to" Observability (diagonal across rows)
+ *
+ * Earlier iterations tried to connect Hosting to Auth, Comms, and
+ * Payments too. Those are all in row 1 alongside Hosting and Data,
+ * but non-adjacent — drawing a path between non-adjacent cards in the
+ * same row inevitably crosses through the cards in between, which
+ * looks broken. The customer can still see those vendors in their
+ * cards directly under the Hosting card; they don't need an arrow to
+ * understand the relationship.
+ *
+ * No LLM-generated connections are merged in here. The LLM emits
+ * edges between specific component IDs; those occasionally produce
+ * edges between categories that route badly (e.g., "S3 → Lambda"
+ * collapses to data → hosting which crosses cards). Sticking to the
+ * canonical four keeps the visual unambiguous.
  */
 const DEFAULT_CONNECTIONS: DiagramConnection[] = [
-  { from: "source_control", to: "ci_cd", label: "pushes" },
-  { from: "ci_cd", to: "hosting_compute", label: "deploys to" },
   { from: "application_stack", to: "hosting_compute", label: "runs on" },
   { from: "domains_dns", to: "hosting_compute", label: "resolves to" },
   { from: "hosting_compute", to: "data_storage", label: "reads / writes" },
-  { from: "hosting_compute", to: "authentication", label: "signs users in" },
-  { from: "hosting_compute", to: "communications", label: "sends email" },
-  { from: "hosting_compute", to: "payments", label: "charges via" },
   { from: "hosting_compute", to: "observability", label: "logs to" },
-  { from: "security_secrets", to: "hosting_compute", label: "provides secrets" },
 ];
 
 export function BlueprintDiagram({
@@ -178,27 +190,16 @@ export function BlueprintDiagram({
     );
   }
 
-  // Build the set of category-level connections to render. Start with
-  // the canonical architectural flows, then merge in any extra ones
-  // the LLM produced at component level.
-  const componentToCategory = new Map<string, string>();
-  for (const cat of categories) {
-    for (const c of cat.components) {
-      componentToCategory.set(c.id, cat.key);
-    }
-  }
-  const categoryConnections = aggregateAndMerge(
-    DEFAULT_CONNECTIONS,
-    connections,
-    componentToCategory
-  );
-
-  // Filter to connections where both ends have components — no point
-  // drawing "DNS → Hosting" if the customer has no DNS detected.
+  // Use ONLY the canonical default connections — no LLM merge. LLM
+  // edges aggregate poorly to category level (they often connect
+  // non-adjacent cards through other cards). The defaults tell the
+  // core story cleanly. The `connections` prop is still accepted for
+  // backward compat with callers; we just don't render them.
+  void connections;
   const populated = new Set(
     categories.filter((c) => c.components.length > 0).map((c) => c.key)
   );
-  const activeConnections = categoryConnections.filter(
+  const activeConnections = DEFAULT_CONNECTIONS.filter(
     (c) => populated.has(c.from) && populated.has(c.to)
   );
 
@@ -451,6 +452,12 @@ function ConnectionOverlay({
       const fromEl = cardRefs.current[conn.from];
       const toEl = cardRefs.current[conn.to];
       if (!fromEl || !toEl) continue;
+      const fromPos = gridPos(conn.from);
+      const toPos = gridPos(conn.to);
+      if (!fromPos || !toPos) continue;
+      const [fr, fc] = fromPos;
+      const [tr, tc] = toPos;
+
       const fb = fromEl.getBoundingClientRect();
       const tb = toEl.getBoundingClientRect();
 
@@ -460,19 +467,26 @@ function ConnectionOverlay({
       const tcx = tb.left + tb.width / 2 - cb.left;
       const tcy = tb.top + tb.height / 2 - cb.top;
 
-      // Route the path from one card EDGE to the other card EDGE
-      // (rather than centre-to-centre) so the entire path lives in
-      // the gap between cards and doesn't depend on z-index or
-      // opaque backgrounds to hide a portion behind a card. The
-      // dominant axis between the two cards' centres picks which
-      // edges to use.
-      const dx = tcx - fcx;
-      const dy = tcy - fcy;
+      // Routing strategy keyed on grid position rather than raw pixel
+      // distance. Three cases:
+      //
+      //   - Same row → horizontal: exit/enter via left/right edges.
+      //     Path lives in the column gap between cards.
+      //   - Same col → vertical: exit/enter via top/bottom edges.
+      //     Path lives in the row gap between cards.
+      //   - Diagonal (different row AND different col) → vertical:
+      //     exit/enter via top/bottom edges. Path traverses
+      //     horizontally through the inter-row gap, which is empty
+      //     space — so the curve never crosses other cards.
+      //
+      // This avoids the fragile "is the dominant pixel axis horizontal
+      // or vertical" check, which can produce paths that route
+      // straight through other cards on diagonals.
       let fx: number, fy: number, tx: number, ty: number;
-      let curveAxis: "h" | "v";
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        curveAxis = "h";
-        if (dx > 0) {
+      let axis: "h" | "v";
+      if (fr === tr) {
+        axis = "h";
+        if (fc < tc) {
           fx = fb.right - cb.left;
           fy = fcy;
           tx = tb.left - cb.left;
@@ -484,8 +498,8 @@ function ConnectionOverlay({
           ty = tcy;
         }
       } else {
-        curveAxis = "v";
-        if (dy > 0) {
+        axis = "v";
+        if (fr < tr) {
           fx = fcx;
           fy = fb.bottom - cb.top;
           tx = tcx;
@@ -498,26 +512,29 @@ function ConnectionOverlay({
         }
       }
 
-      // Bezier control points pulled along the curve's dominant axis
-      // for a soft S-curve.
+      // Bezier control points: pull each control point along the
+      // routing axis to mid-span. Creates a soft S-curve where
+      // horizontal connections curve through the column gap and
+      // vertical/diagonal connections curve through the row gap.
       let c1x: number, c1y: number, c2x: number, c2y: number;
-      if (curveAxis === "h") {
-        const span = tx - fx;
-        c1x = fx + span * 0.5;
+      if (axis === "h") {
+        const mid = (fx + tx) / 2;
+        c1x = mid;
         c1y = fy;
-        c2x = tx - span * 0.5;
+        c2x = mid;
         c2y = ty;
       } else {
-        const span = ty - fy;
+        const mid = (fy + ty) / 2;
         c1x = fx;
-        c1y = fy + span * 0.5;
+        c1y = mid;
         c2x = tx;
-        c2y = ty - span * 0.5;
+        c2y = mid;
       }
 
       const d = `M ${fx} ${fy} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${tx} ${ty}`;
 
-      // Approx midpoint (true bezier midpoint at t=0.5).
+      // True bezier midpoint at t=0.5 — for cubic bezier:
+      //   B(0.5) = 0.125 * P0 + 0.375 * P1 + 0.375 * P2 + 0.125 * P3
       const midX = 0.125 * fx + 0.375 * c1x + 0.375 * c2x + 0.125 * tx;
       const midY = 0.125 * fy + 0.375 * c1y + 0.375 * c2y + 0.125 * ty;
 
@@ -648,28 +665,13 @@ function approxLabelWidth(label: string): number {
 }
 
 /**
- * Aggregate component-level LLM connections up to category level,
- * then merge them with the canonical architectural defaults so we
- * always have the standard "code → hosting → data, auth, comms,
- * payments" backbone. De-duped by (from, to) pair.
+ * Look up a category's grid row/col from GRID_AREAS. Used by the
+ * connection overlay to pick the right edges for routing.
  */
-function aggregateAndMerge(
-  defaults: DiagramConnection[],
-  llm: DiagramConnection[],
-  componentToCategory: Map<string, string>
-): DiagramConnection[] {
-  const merged = new Map<string, DiagramConnection>();
-  for (const d of defaults) {
-    merged.set(`${d.from}|${d.to}`, d);
+function gridPos(key: string): [number, number] | null {
+  for (let r = 0; r < GRID_AREAS.length; r++) {
+    const c = GRID_AREAS[r].indexOf(key);
+    if (c >= 0) return [r, c];
   }
-  for (const c of llm) {
-    const fromCat = componentToCategory.get(c.from);
-    const toCat = componentToCategory.get(c.to);
-    if (!fromCat || !toCat || fromCat === toCat) continue;
-    const key = `${fromCat}|${toCat}`;
-    if (!merged.has(key)) {
-      merged.set(key, { from: fromCat, to: toCat, label: c.label });
-    }
-  }
-  return Array.from(merged.values());
+  return null;
 }
