@@ -1657,3 +1657,69 @@ footer {
   padding: 10px 14px;
   margin-bottom: 24px;
 }
+
+/* ============================================================================
+   MANUAL SETUP + BANNER ACTIONS
+   ============================================================================ */
+
+.bp-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bp-banner-link {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink2);
+  text-decoration: none;
+  transition: color 0.2s;
+  border-bottom: 1px solid transparent;
+}
+.bp-banner-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink3);
+}
+
+.aws-code-block {
+  display: block;
+  margin-top: 8px;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--ink);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.manual-advanced {
+  margin-top: 32px;
+  padding: 16px 24px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.manual-advanced summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink2);
+  letter-spacing: 0.04em;
+}
+.manual-advanced summary:hover { color: var(--ink); }
+
+.manual-advanced[open] summary {
+  margin-bottom: 12px;
+  color: var(--ink);
+}
+
+.manual-advanced-body {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.7;
+  margin: 12px 0;
+}
