@@ -359,7 +359,22 @@ function ProjectStatusPanel({
   const allDone = stages.every((s) => s.status === "done");
   const isGitHub = !!project.git_repo_full_name;
   const isEcr = !!project.ecr_webhook_token;
+  const hasAnySource = isGitHub || isEcr;
   const lastDeploy = deploys[0];
+
+  // Stale = blueprint went live before AND we haven't seen anything in 7+ days.
+  // Project has events from real or test pushes; if none have arrived recently
+  // the connection probably broke.
+  const STALE_DAYS = 7;
+  const lastEventMs = lastDeploy ? new Date(lastDeploy.created_at).getTime() : null;
+  const daysSinceLast =
+    lastEventMs !== null
+      ? Math.floor((Date.now() - lastEventMs) / 86_400_000)
+      : null;
+  const isStale =
+    project.blueprint_status === "ready" &&
+    daysSinceLast !== null &&
+    daysSinceLast >= STALE_DAYS;
 
   return (
     <section className="project-section">
@@ -471,22 +486,37 @@ function ProjectStatusPanel({
                       Open repo →
                     </a>
                   )}
-                  {isEcr && <TestEventButton projectId={project.id} />}
+                  {hasAnySource && <TestEventButton projectId={project.id} />}
                 </div>
               </>
             )}
 
-          {allDone && (
+          {allDone && isStale && (
+            <>
+              <p className="status-action-text status-action-stale">
+                ⚠ <strong>No updates in {daysSinceLast} days.</strong> Your
+                connection might have broken silently. Run a test update to
+                check the path is still working.
+              </p>
+              <div className="status-buttons">
+                {hasAnySource && <TestEventButton projectId={project.id} />}
+                <RegenerateButton projectId={project.id} />
+              </div>
+            </>
+          )}
+
+          {allDone && !isStale && (
             <>
               <p className="status-action-text">
                 ✓ Your blueprint is live and will rebuild every time you
                 ship something new.{" "}
-                {lastDeploy &&
-                  `Last update ${formatRelative(lastDeploy.created_at)}.`}
+                {lastDeploy
+                  ? `Last update ${formatRelative(lastDeploy.created_at)}.`
+                  : ""}
               </p>
               <div className="status-buttons">
                 <RegenerateButton projectId={project.id} />
-                {isEcr && <TestEventButton projectId={project.id} />}
+                {hasAnySource && <TestEventButton projectId={project.id} />}
               </div>
             </>
           )}

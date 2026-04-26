@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
-import { randomBytes } from "crypto";
+import { createHmac, randomBytes } from "crypto";
 import { createClient } from "@/utils/supabase/server";
 import { kickOffBlueprintGeneration } from "@/lib/blueprint";
 
@@ -143,15 +143,22 @@ export async function regenerateBlueprint(formData: FormData) {
 }
 
 /**
- * Send a synthetic ECR push event to our own webhook to verify end-to-end
- * wiring without needing a real ECR push. Useful for diagnosing whether the
- * problem is on the user's AWS side or ours.
+ * Send a synthetic update to our own webhook to verify end-to-end wiring
+ * without the user needing to actually ship something. Source-aware:
  *
- * The synthetic deploy row is tagged so the user can tell it apart from
- * real deploys in their history.
+ *   - GitHub: build a fake `push` payload, HMAC-sign with the project's
+ *     git_webhook_secret, POST to /api/webhooks/github with the standard
+ *     GitHub headers (x-github-event: push, x-hub-signature-256: ...).
+ *   - AWS ECR: build a fake EventBridge "ECR Image Action" event, POST to
+ *     /api/webhooks/aws/[token] with the X-StackLense-Token header.
+ *
+ * If a project has both sources connected, we test GitHub first (it's the
+ * more common everyday push trigger). The user can also flag in the form
+ * which one they want to test via the `source` field.
  */
 export async function sendTestEvent(formData: FormData) {
   const projectId = String(formData.get("project_id") ?? "");
+  const requestedSource = String(formData.get("source") ?? "");
   if (!projectId) redirect("/dashboard");
 
   const cookieStore = await cookies();
@@ -159,16 +166,29 @@ export async function sendTestEvent(formData: FormData) {
 
   const { data: project, error } = await supabase
     .from("projects")
-    .select("id, ecr_webhook_token, ecr_repo_name, ecr_aws_account_id")
+    .select(
+      "id, git_repo_full_name, git_repo_id, git_webhook_secret, ecr_webhook_token, ecr_repo_name, ecr_aws_account_id"
+    )
     .eq("id", projectId)
     .single();
   if (error || !project)
     redirect(`/dashboard/${projectId}?error=Not%20found`);
 
-  if (!project.ecr_webhook_token) {
+  const hasGitHub = !!project.git_webhook_secret && !!project.git_repo_full_name;
+  const hasEcr = !!project.ecr_webhook_token;
+
+  // Pick which source to fire. Caller may force one via formData.source;
+  // otherwise default to GitHub if available, else ECR.
+  let source: "github" | "ecr" | null = null;
+  if (requestedSource === "github" && hasGitHub) source = "github";
+  else if (requestedSource === "ecr" && hasEcr) source = "ecr";
+  else if (hasGitHub) source = "github";
+  else if (hasEcr) source = "ecr";
+
+  if (!source) {
     redirect(
       `/dashboard/${projectId}?error=${encodeURIComponent(
-        "Test events are only available for AWS ECR projects."
+        "This project has no connected source to test. Connect GitHub or AWS ECR first."
       )}`
     );
   }
@@ -176,48 +196,86 @@ export async function sendTestEvent(formData: FormData) {
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("host") ?? "stacklense.com";
-  const webhookUrl = `${proto}://${host}/api/webhooks/aws/${project.ecr_webhook_token}`;
+  const origin = `${proto}://${host}`;
 
-  const fakeDigest = `sha256:${randomBytes(32).toString("hex")}`;
-  const payload = {
-    version: "0",
-    id: `stacklense-test-${randomBytes(8).toString("hex")}`,
-    "detail-type": "ECR Image Action",
-    source: "aws.ecr",
-    account: project.ecr_aws_account_id ?? "000000000000",
-    time: new Date().toISOString(),
-    region: "us-east-1",
-    resources: [],
-    detail: {
-      "action-type": "PUSH",
-      result: "SUCCESS",
-      "repository-name": project.ecr_repo_name ?? "stacklense-test",
-      "image-tag": "stacklense-test-event",
-      "image-digest": fakeDigest,
-    },
-  };
-
-  // Use a local error variable rather than calling redirect() inside the
-  // try/catch — redirect() throws a special NEXT_REDIRECT error that the
-  // catch block would otherwise swallow.
   let errorMsg: string | null = null;
   try {
-    const r = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-StackLense-Token": project.ecr_webhook_token,
-        "X-StackLense-Synthetic": "1",
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const text = await r.text();
-      errorMsg = `Test event webhook returned ${r.status}: ${text.slice(0, 200)}`;
+    if (source === "ecr") {
+      const url = `${origin}/api/webhooks/aws/${project.ecr_webhook_token}`;
+      const payload = {
+        version: "0",
+        id: `stacklense-test-${randomBytes(8).toString("hex")}`,
+        "detail-type": "ECR Image Action",
+        source: "aws.ecr",
+        account: project.ecr_aws_account_id ?? "000000000000",
+        time: new Date().toISOString(),
+        region: "us-east-1",
+        resources: [],
+        detail: {
+          "action-type": "PUSH",
+          result: "SUCCESS",
+          "repository-name": project.ecr_repo_name ?? "stacklense-test",
+          "image-tag": "stacklense-test-update",
+          "image-digest": `sha256:${randomBytes(32).toString("hex")}`,
+        },
+      };
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-StackLense-Token": project.ecr_webhook_token!,
+          "X-StackLense-Synthetic": "1",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        errorMsg = `Test update returned ${r.status}: ${text.slice(0, 200)}`;
+      }
+    } else {
+      // GitHub push
+      const url = `${origin}/api/webhooks/github`;
+      const fakeSha = randomBytes(20).toString("hex");
+      const payload = {
+        ref: "refs/heads/main",
+        repository: {
+          full_name: project.git_repo_full_name,
+          id: project.git_repo_id ?? 0,
+        },
+        head_commit: {
+          id: fakeSha,
+          message: "stacklense: test update",
+          timestamp: new Date().toISOString(),
+          author: {
+            name: "StackLense",
+            email: "noreply@stacklense.com",
+          },
+        },
+      };
+      const rawBody = JSON.stringify(payload);
+      const sig =
+        "sha256=" +
+        createHmac("sha256", project.git_webhook_secret!)
+          .update(rawBody)
+          .digest("hex");
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-GitHub-Event": "push",
+          "X-Hub-Signature-256": sig,
+          "X-StackLense-Synthetic": "1",
+        },
+        body: rawBody,
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        errorMsg = `Test update returned ${r.status}: ${text.slice(0, 200)}`;
+      }
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    errorMsg = `Test event failed: ${msg}`;
+    errorMsg = `Test update failed: ${msg}`;
   }
 
   if (errorMsg) {
