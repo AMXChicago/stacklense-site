@@ -51,6 +51,29 @@ import {
   DynamoDBClient,
   ListTablesCommand,
 } from "@aws-sdk/client-dynamodb";
+import {
+  SESv2Client,
+  ListEmailIdentitiesCommand,
+  ListConfigurationSetsCommand,
+} from "@aws-sdk/client-sesv2";
+import {
+  WAFV2Client,
+  ListWebACLsCommand,
+} from "@aws-sdk/client-wafv2";
+import {
+  ACMClient,
+  ListCertificatesCommand,
+} from "@aws-sdk/client-acm";
+import {
+  EventBridgeClient,
+  ListEventBusesCommand,
+} from "@aws-sdk/client-eventbridge";
+import { SNSClient, ListTopicsCommand } from "@aws-sdk/client-sns";
+import { SQSClient, ListQueuesCommand } from "@aws-sdk/client-sqs";
+import {
+  CognitoIdentityProviderClient,
+  ListUserPoolsCommand,
+} from "@aws-sdk/client-cognito-identity-provider";
 
 type AwsCreds = {
   accessKeyId: string;
@@ -107,6 +130,22 @@ export type AwsDiscoveryResult = {
     engine_version?: string;
   }>;
   dynamo_tables: string[];
+  ses_identities: Array<{
+    name?: string;
+    type?: string;
+    verified?: boolean;
+  }>;
+  ses_configuration_sets: string[];
+  waf_web_acls: Array<{ name?: string; arn?: string; scope?: string }>;
+  acm_certificates: Array<{
+    domain?: string;
+    status?: string;
+    in_use?: boolean;
+  }>;
+  event_buses: Array<{ name?: string; arn?: string }>;
+  sns_topics: string[];
+  sqs_queues: string[];
+  cognito_user_pools: Array<{ id?: string; name?: string }>;
   errors: Array<{ source: string; message: string }>;
 };
 
@@ -189,6 +228,14 @@ export async function discoverAwsResources(args: {
     rdsInstances,
     rdsClusters,
     dynamoTables,
+    sesIdentities,
+    sesConfigSets,
+    wafAcls,
+    acmCerts,
+    eventBuses,
+    snsTopics,
+    sqsQueues,
+    cognitoPools,
   ] = await Promise.all([
     safe("ecr", () => listEcrRepos(opts)),
     safe("ecs", () => listEcsClustersAndServices(opts)),
@@ -202,6 +249,14 @@ export async function discoverAwsResources(args: {
     safe("rds-instances", () => listRdsInstances(opts)),
     safe("rds-clusters", () => listRdsClusters(opts)),
     safe("dynamodb", () => listDynamoTables(opts)),
+    safe("ses-identities", () => listSesIdentities(opts)),
+    safe("ses-config-sets", () => listSesConfigurationSets(opts)),
+    safe("waf", () => listWafAcls(opts)),
+    safe("acm", () => listAcmCerts(opts)),
+    safe("event-buses", () => listEventBuses(opts)),
+    safe("sns", () => listSnsTopics(opts)),
+    safe("sqs", () => listSqsQueues(opts)),
+    safe("cognito", () => listCognitoUserPools(opts)),
   ]);
 
   return {
@@ -219,6 +274,14 @@ export async function discoverAwsResources(args: {
     rds_instances: rdsInstances ?? [],
     rds_clusters: rdsClusters ?? [],
     dynamo_tables: dynamoTables ?? [],
+    ses_identities: sesIdentities ?? [],
+    ses_configuration_sets: sesConfigSets ?? [],
+    waf_web_acls: wafAcls ?? [],
+    acm_certificates: acmCerts ?? [],
+    event_buses: eventBuses ?? [],
+    sns_topics: snsTopics ?? [],
+    sqs_queues: sqsQueues ?? [],
+    cognito_user_pools: cognitoPools ?? [],
     errors,
   };
 }
@@ -427,6 +490,90 @@ async function listDynamoTables(opts: {
   return r.TableNames ?? [];
 }
 
+async function listSesIdentities(opts: {
+  region: string;
+  credentials: AwsCreds;
+}) {
+  const c = new SESv2Client(opts);
+  const r = await c.send(new ListEmailIdentitiesCommand({ PageSize: 100 }));
+  return (r.EmailIdentities ?? []).map((i) => ({
+    name: i.IdentityName,
+    type: i.IdentityType,
+    verified: i.SendingEnabled,
+  }));
+}
+
+async function listSesConfigurationSets(opts: {
+  region: string;
+  credentials: AwsCreds;
+}) {
+  const c = new SESv2Client(opts);
+  const r = await c.send(new ListConfigurationSetsCommand({ PageSize: 50 }));
+  return r.ConfigurationSets ?? [];
+}
+
+async function listWafAcls(opts: { region: string; credentials: AwsCreds }) {
+  const c = new WAFV2Client(opts);
+  // Regional WAF (ALB/API Gateway). CloudFront uses CLOUDFRONT scope which
+  // requires us-east-1; we stick to REGIONAL for the configured region.
+  const r = await c.send(
+    new ListWebACLsCommand({ Scope: "REGIONAL", Limit: 50 })
+  );
+  return (r.WebACLs ?? []).map((a) => ({
+    name: a.Name,
+    arn: a.ARN,
+    scope: "REGIONAL",
+  }));
+}
+
+async function listAcmCerts(opts: { region: string; credentials: AwsCreds }) {
+  const c = new ACMClient(opts);
+  const r = await c.send(new ListCertificatesCommand({ MaxItems: 50 }));
+  return (r.CertificateSummaryList ?? []).map((cert) => ({
+    domain: cert.DomainName,
+    status: cert.Status,
+    in_use: cert.InUse,
+  }));
+}
+
+async function listEventBuses(opts: {
+  region: string;
+  credentials: AwsCreds;
+}) {
+  const c = new EventBridgeClient(opts);
+  const r = await c.send(new ListEventBusesCommand({ Limit: 50 }));
+  return (r.EventBuses ?? []).map((b) => ({
+    name: b.Name,
+    arn: b.Arn,
+  }));
+}
+
+async function listSnsTopics(opts: { region: string; credentials: AwsCreds }) {
+  const c = new SNSClient(opts);
+  const r = await c.send(new ListTopicsCommand({}));
+  return (r.Topics ?? [])
+    .map((t) => t.TopicArn)
+    .filter((x): x is string => !!x);
+}
+
+async function listSqsQueues(opts: { region: string; credentials: AwsCreds }) {
+  const c = new SQSClient(opts);
+  const r = await c.send(new ListQueuesCommand({ MaxResults: 50 }));
+  return r.QueueUrls ?? [];
+}
+
+async function listCognitoUserPools(opts: {
+  region: string;
+  credentials: AwsCreds;
+}) {
+  const c = new CognitoIdentityProviderClient(opts);
+  const r = await c.send(new ListUserPoolsCommand({ MaxResults: 50 }));
+  return (r.UserPools ?? []).map((p) => ({
+    id: p.Id,
+    name: p.Name,
+  }));
+}
+
 /**
  * Pretty-print a discovery result as a markdown-like block to feed to the
  * analysis engine prompt. Empty sections are omitted to keep prompt tight.
@@ -547,6 +694,69 @@ export function discoveryToPromptText(d: AwsDiscoveryResult): string {
     lines.push("## DynamoDB tables");
     for (const t of d.dynamo_tables) {
       lines.push(`- ${t}`);
+    }
+    lines.push("");
+  }
+
+  if (d.ses_identities.length > 0 || d.ses_configuration_sets.length > 0) {
+    lines.push("## Amazon SES (transactional email)");
+    for (const i of d.ses_identities) {
+      lines.push(
+        `- ${i.name} (${i.type}${i.verified ? ", verified" : ""})`
+      );
+    }
+    for (const cs of d.ses_configuration_sets) {
+      lines.push(`- config set: ${cs}`);
+    }
+    lines.push("");
+  }
+
+  if (d.waf_web_acls.length > 0) {
+    lines.push("## WAF Web ACLs");
+    for (const a of d.waf_web_acls) {
+      lines.push(`- ${a.name} (${a.scope})`);
+    }
+    lines.push("");
+  }
+
+  if (d.acm_certificates.length > 0) {
+    lines.push("## ACM certificates (SSL/TLS)");
+    for (const c of d.acm_certificates) {
+      lines.push(
+        `- ${c.domain} (status: ${c.status}${c.in_use ? ", in use" : ""})`
+      );
+    }
+    lines.push("");
+  }
+
+  if (d.event_buses.length > 0) {
+    lines.push("## EventBridge buses");
+    for (const b of d.event_buses) {
+      lines.push(`- ${b.name}`);
+    }
+    lines.push("");
+  }
+
+  if (d.sns_topics.length > 0) {
+    lines.push("## SNS topics");
+    for (const t of d.sns_topics) {
+      lines.push(`- ${t}`);
+    }
+    lines.push("");
+  }
+
+  if (d.sqs_queues.length > 0) {
+    lines.push("## SQS queues");
+    for (const q of d.sqs_queues) {
+      lines.push(`- ${q}`);
+    }
+    lines.push("");
+  }
+
+  if (d.cognito_user_pools.length > 0) {
+    lines.push("## Cognito user pools");
+    for (const p of d.cognito_user_pools) {
+      lines.push(`- ${p.name} (${p.id})`);
     }
     lines.push("");
   }

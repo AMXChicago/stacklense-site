@@ -6,17 +6,22 @@ import {
   type DiagramCategory,
   type DiagramConnection,
 } from "./BlueprintDiagram";
+import { BlueprintInventory } from "./BlueprintInventory";
 
 export function BlueprintTabs({
   categories,
   connections,
   listView,
+  discoverySnapshot,
+  discoveryAt,
 }: {
   categories: DiagramCategory[];
   connections: DiagramConnection[];
   listView: ReactNode;
+  discoverySnapshot: Record<string, unknown> | null;
+  discoveryAt: string | null;
 }) {
-  const [view, setView] = useState<"diagram" | "list">("diagram");
+  const [view, setView] = useState<"diagram" | "list" | "inventory">("diagram");
   return (
     <div className="bp-tabs-wrapper">
       <div className="bp-tabs" role="tablist">
@@ -36,14 +41,28 @@ export function BlueprintTabs({
         >
           List
         </button>
+        <button
+          role="tab"
+          aria-selected={view === "inventory"}
+          className={`bp-tab ${view === "inventory" ? "bp-tab-active" : ""}`}
+          onClick={() => setView("inventory")}
+        >
+          Inventory
+        </button>
       </div>
-      {view === "diagram" ? (
+      {view === "diagram" && (
         <BlueprintDiagram
           categories={categories}
           connections={connections}
         />
-      ) : (
-        <div className="bp-list-pane">{listView}</div>
+      )}
+      {view === "list" && <div className="bp-list-pane">{listView}</div>}
+      {view === "inventory" && (
+        <BlueprintInventory
+          /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+          snapshot={discoverySnapshot as any}
+          observedAt={discoveryAt}
+        />
       )}
     </div>
   );
