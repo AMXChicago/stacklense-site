@@ -2075,9 +2075,219 @@ a.bp-cat-item-name:hover {
 }
 
 /* ============================================================================
+   PROJECT WORKSPACE LAYOUT
+   ============================================================================
+   The project page is structured as a workspace centred on the
+   architecture diagram:
+
+     1. Sticky compact header at top (project name, status, jump link)
+     2. Diagram hero — fills 75vh with platform chips + canvas
+     3. Operations section below the fold (status, AWS, updates, settings)
+
+   Risks taken: backdrop-blur on the sticky header, ambient radial
+   gradient under the canvas, generous viewport-driven height — the
+   diagram is meant to be the experience, not a section among
+   sections. */
+
+.proj-shell {
+  /* The dashboard layout already provides the outer page chrome.
+   * proj-shell just holds the header + sections in document flow. */
+  display: contents;
+  scroll-behavior: smooth;
+}
+
+/* Sticky header — pinned to the top of the viewport. backdrop-filter
+ * gives it depth without taking visual real estate from the diagram.
+ * Negative top margin offsets the dashboard's own padding so the
+ * header reads as a true page bar, not a card. */
+.proj-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 32px;
+  margin: -32px -32px 24px;
+  background: rgba(12, 12, 10, 0.78);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border-bottom: 1px solid var(--border2);
+}
+.proj-header-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  color: var(--ink2);
+  text-decoration: none;
+  font-size: 16px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.proj-header-back:hover {
+  border-color: var(--ink3);
+  color: var(--ink);
+  background: var(--bg2);
+}
+.proj-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proj-header-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proj-header-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink3);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proj-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.proj-header-jump {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink3);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.proj-header-jump:hover {
+  color: var(--ink);
+  border-color: var(--border2);
+  background: var(--bg2);
+}
+
+/* Status chip — small pill showing the blueprint state. Pulses
+ * when the blueprint is generating. */
+.proj-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.proj-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.proj-status-chip-ok {
+  color: var(--green);
+  background: rgba(61, 214, 140, 0.08);
+  border-color: rgba(61, 214, 140, 0.4);
+}
+.proj-status-chip-ok .proj-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(61, 214, 140, 0.6);
+}
+.proj-status-chip-running {
+  color: #f0b400;
+  background: rgba(240, 180, 0, 0.08);
+  border-color: rgba(240, 180, 0, 0.4);
+}
+.proj-status-chip-running .proj-status-dot {
+  background: #f0b400;
+  animation: proj-pulse 1.4s ease-in-out infinite;
+}
+.proj-status-chip-err {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.08);
+  border-color: rgba(255, 107, 107, 0.4);
+}
+.proj-status-chip-err .proj-status-dot {
+  background: #ff6b6b;
+}
+.proj-status-chip-neutral {
+  color: var(--ink3);
+}
+.proj-status-chip-neutral .proj-status-dot {
+  background: var(--ink3);
+}
+@keyframes proj-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
+
+/* Diagram hero — the big show. 75vh tall (capped at 1000px on huge
+ * monitors), with a subtle radial gradient backdrop that gives the
+ * canvas a sense of "stage" rather than "card". */
+.proj-hero {
+  position: relative;
+  margin-bottom: 48px;
+}
+.proj-hero::before {
+  content: "";
+  position: absolute;
+  inset: -40px -40px 0;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    rgba(168, 85, 247, 0.06),
+    transparent 60%
+  );
+  pointer-events: none;
+  z-index: -1;
+}
+.proj-flashes {
+  margin-bottom: 20px;
+}
+
+/* Operations section — the support content, scrolled to via the
+ * "Operations ↓" link in the sticky header. */
+.proj-ops {
+  scroll-margin-top: 80px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border2);
+}
+.proj-ops-header {
+  margin-bottom: 24px;
+}
+.proj-ops-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.proj-ops-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink3);
+}
+
+/* ============================================================================
    BLUEPRINT ARCHITECTURE DIAGRAM
    ============================================================================
-   Project hero + platform filter row + React Flow architecture canvas.
+   Platform filter row + React Flow architecture canvas.
    The canvas is styled to feel native to the page: no canvas border,
    no controls chrome, no minimap. Node and edge styling matches our
    existing card system. */
@@ -2085,86 +2295,45 @@ a.bp-cat-item-name:hover {
 .arch-board {
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 28px;
-}
-
-/* Project hero — compact version of the project identity block. */
-.arch-hero {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  padding: 4px 4px 22px;
-  border-bottom: 1px solid var(--border2);
-}
-.arch-hero-mark {
-  flex-shrink: 0;
-  width: 64px;
-  height: 64px;
-  border-radius: 14px;
-  background: linear-gradient(
-    135deg,
-    rgba(61, 214, 140, 0.18),
-    rgba(168, 85, 247, 0.18)
-  );
-  border: 1px solid var(--border2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--mono);
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.arch-hero-text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.arch-hero-name {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-.arch-hero-summary {
-  margin: 0;
-  font-size: 14px;
-  color: var(--ink2);
-  line-height: 1.55;
-  max-width: 60ch;
-}
-.arch-hero-stats {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--ink3);
-  font-family: var(--mono);
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.arch-hero-stats strong {
-  color: var(--ink);
-  font-weight: 600;
+  border-radius: 16px;
+  padding: 24px 28px 28px;
+  position: relative;
+  overflow: hidden;
 }
 
 /* Platform filter row — clickable chips for each platform with vendor
- * logo + name + count. Click toggles highlight mode for that platform. */
+ * logo + name + count. Click toggles highlight mode for that platform.
+ * Stats live on the same row so the canvas below gets all the height. */
 .arch-platforms {
-  padding: 20px 4px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--border2);
+  margin-bottom: 18px;
+}
+.arch-platforms-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .arch-platforms-label {
-  margin: 0 0 10px;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink3);
+}
+.arch-platforms-stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink3);
+}
+.arch-platforms-stats strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 .arch-platforms-chips {
   display: flex;
@@ -2225,15 +2394,24 @@ a.bp-cat-item-name:hover {
   background: var(--bg);
 }
 
-/* Architecture canvas — wraps React Flow. The container has the
- * page's bg, no border (canvas is just the flow surface), no chrome. */
+/* Architecture canvas — the centrepiece. Sized as a percentage of
+ * the viewport so it fills the visible area without dominating it
+ * on huge monitors. min-height ensures small projects still feel
+ * grand. */
 .arch-canvas {
-  margin-top: 22px;
   width: 100%;
-  background: var(--bg);
-  border-radius: 10px;
+  height: clamp(540px, 70vh, 880px);
+  background:
+    radial-gradient(
+      ellipse at 50% 100%,
+      rgba(61, 214, 140, 0.04),
+      transparent 60%
+    ),
+    var(--bg);
+  border-radius: 12px;
   overflow: hidden;
   position: relative;
+  border: 1px solid var(--border2);
 }
 .arch-canvas .react-flow__renderer { background: transparent; }
 .arch-canvas .react-flow__background { background: transparent; }
