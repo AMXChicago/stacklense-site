@@ -53,19 +53,20 @@ export default async function ConnectAwsPage({
         />
 
         <label className="form-label" htmlFor="ecr_account_id">
-          AWS account ID (optional)
+          AWS account ID (12 digits)
         </label>
         <input
           id="ecr_account_id"
           name="ecr_account_id"
           type="text"
+          required
           pattern="[0-9]{12}"
           placeholder="123456789012"
           className="login-input"
         />
 
         <label className="form-label" htmlFor="ecr_repo_name">
-          ECR repo name (optional, leave blank to watch all repos)
+          ECR repo name (optional — leave blank to watch all repos)
         </label>
         <input
           id="ecr_repo_name"
