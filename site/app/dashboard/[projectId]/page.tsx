@@ -11,6 +11,8 @@ import {
 import { DeleteProjectButton } from "./DeleteProjectButton";
 import { AutoRefresh } from "./AutoRefresh";
 import { BlueprintTabs } from "./BlueprintTabs";
+import { VendorLogo } from "./VendorLogo";
+import { ExportButtons } from "./ExportButtons";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
@@ -763,13 +765,19 @@ function BlueprintView({ project }: { project: Project }) {
       )}
 
       {project.blueprint_generated_at && (
-        <p className="bp-foot">
-          Generated{" "}
-          {new Date(project.blueprint_generated_at).toLocaleString(undefined, {
-            dateStyle: "medium",
-            timeStyle: "short",
-          })}
-        </p>
+        <div className="bp-export-row">
+          <p className="bp-foot">
+            Generated{" "}
+            {new Date(project.blueprint_generated_at).toLocaleString(
+              undefined,
+              { dateStyle: "medium", timeStyle: "short" }
+            )}
+          </p>
+          <ExportButtons
+            blueprint={bp}
+            projectName={project.name}
+          />
+        </div>
       )}
     </div>
   );
@@ -791,21 +799,24 @@ function BlueprintCategoryBlock({
           {category.components.map((c) => (
             <li key={c.id} className="bp-cat-item">
               <div className="bp-cat-item-head">
-                {c.console_url ? (
-                  <a
-                    href={c.console_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bp-cat-item-name"
-                  >
-                    {c.name} ↗
-                  </a>
-                ) : (
-                  <span className="bp-cat-item-name">{c.name}</span>
-                )}
-                {c.vendor && c.vendor !== c.name && (
-                  <span className="bp-cat-item-vendor">{c.vendor}</span>
-                )}
+                <VendorLogo vendor={c.vendor ?? c.name} size={28} />
+                <div className="bp-cat-item-text">
+                  {c.console_url ? (
+                    <a
+                      href={c.console_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bp-cat-item-name"
+                    >
+                      {c.name} ↗
+                    </a>
+                  ) : (
+                    <span className="bp-cat-item-name">{c.name}</span>
+                  )}
+                  {c.vendor && c.vendor !== c.name && (
+                    <span className="bp-cat-item-vendor">{c.vendor}</span>
+                  )}
+                </div>
               </div>
               <p className="bp-cat-item-desc">{c.description}</p>
               {c.evidence && (
