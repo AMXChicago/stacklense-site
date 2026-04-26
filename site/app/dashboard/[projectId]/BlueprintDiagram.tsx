@@ -372,8 +372,10 @@ export function BlueprintDiagram({
     return inferDefaultConnections(categories, connections);
   }, [categories, connections]);
 
-  // Build React Flow nodes & edges.
-  const { positionedNodes, edges, canvasHeight } = useMemo(() => {
+  // Build React Flow nodes & edges. Layout via dagre, but the actual
+  // canvas height is fixed by CSS (75vh) — so the diagram occupies a
+  // consistent viewport-sized hero regardless of node count.
+  const { positionedNodes, edges } = useMemo(() => {
     const ids = new Set(flatComponents.map((c) => c.id));
 
     const rawNodes: Node<ComponentNodeData>[] = flatComponents.map((c) => ({
@@ -434,7 +436,6 @@ export function BlueprintDiagram({
     return {
       positionedNodes: laid.nodes,
       edges: rawEdges,
-      canvasHeight: Math.max(laid.height, 480),
     };
     // selectedPlatform recomputes node/edge data; flatComponents and
     // allConnections feed into both layout and styling.
@@ -456,27 +457,26 @@ export function BlueprintDiagram({
     (c) => c.components.length > 0
   ).length;
 
+  // Project identity (name + summary) is now carried by the page's
+  // sticky header. Inside the diagram we just show a slim stats line
+  // alongside the platform chips so the canvas itself dominates the
+  // hero. `projectName` and `projectSummary` props are kept for
+  // backward compat but no longer rendered here.
+  void projectName;
+  void projectSummary;
+
   return (
     <div className="arch-board">
-      <ProjectHero
-        name={projectName}
-        summary={projectSummary}
-        totalComponents={totalComponents}
-        populatedCategories={populatedCategories}
-      />
-
       <PlatformFilterRow
         platforms={platforms}
         selected={selectedPlatform}
         onSelect={(key) =>
           setSelectedPlatform((prev) => (prev === key ? null : key))
         }
+        stats={{ totalComponents, populatedCategories }}
       />
 
-      <div
-        className="arch-canvas"
-        style={{ height: canvasHeight, minHeight: 480 }}
-      >
+      <div className="arch-canvas">
         <ReactFlow
           nodes={positionedNodes}
           edges={edges}
@@ -505,56 +505,27 @@ export function BlueprintDiagram({
 // Sub-components
 // ----------------------------------------------------------------------------
 
-function ProjectHero({
-  name,
-  summary,
-  totalComponents,
-  populatedCategories,
-}: {
-  name: string;
-  summary?: string | null;
-  totalComponents: number;
-  populatedCategories: number;
-}) {
-  const mark = monogramFromName(name);
-  return (
-    <header className="arch-hero">
-      <div className="arch-hero-mark" aria-hidden>
-        {mark}
-      </div>
-      <div className="arch-hero-text">
-        <h2 className="arch-hero-name">{name}</h2>
-        {summary && <p className="arch-hero-summary">{summary}</p>}
-        <p className="arch-hero-stats">
-          <span>
-            <strong>{totalComponents}</strong> component
-            {totalComponents === 1 ? "" : "s"} detected
-          </span>
-          <span aria-hidden>·</span>
-          <span>
-            across <strong>{populatedCategories}</strong> of 12 categories
-          </span>
-        </p>
-      </div>
-    </header>
-  );
-}
-
 function PlatformFilterRow({
   platforms,
   selected,
   onSelect,
+  stats,
 }: {
   platforms: Array<PlatformInfo & { count: number }>;
   selected: PlatformKey | null;
   onSelect: (key: PlatformKey) => void;
+  stats: { totalComponents: number; populatedCategories: number };
 }) {
   if (platforms.length === 0) return null;
   return (
     <div className="arch-platforms">
-      <p className="arch-platforms-label">
-        Click a platform to highlight what it powers
-      </p>
+      <div className="arch-platforms-meta">
+        <span className="arch-platforms-label">Platforms</span>
+        <span className="arch-platforms-stats">
+          <strong>{stats.totalComponents}</strong> components ·{" "}
+          <strong>{stats.populatedCategories}</strong> of 12 categories
+        </span>
+      </div>
       <div className="arch-platforms-chips" role="tablist">
         {platforms.map((p) => {
           const active = selected === p.key;
@@ -581,16 +552,3 @@ function PlatformFilterRow({
   );
 }
 
-// ----------------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------------
-
-function monogramFromName(name: string): string {
-  const words = name
-    .replace(/[^a-zA-Z0-9 ]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
-}

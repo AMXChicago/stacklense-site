@@ -192,116 +192,130 @@ export default async function ProjectDetailPage({
         }
       | null)?.errors ?? null;
 
+  // Extract the blueprint here so the sticky header can use its summary
+  // (the LLM's one-sentence description of the project) as the page
+  // subtitle.
+  const bpTop = project.blueprint;
+
   return (
-    <>
-      <div className="dash-greeting">
-        <Link href="/dashboard" className="connect-back">
-          ← All projects
-        </Link>
-        <div className="dash-section-label">Project</div>
-        <h1 className="dash-h1">{project.name}</h1>
-        {project.description && (
-          <p className="dash-sub">{project.description}</p>
-        )}
-      </div>
+    <div className="proj-shell">
+      <ProjectStickyHeader
+        project={project}
+        summary={bpTop?.summary ?? project.description}
+      />
 
       {(project.blueprint_status === "generating" ||
         (!!project.ecr_aws_account_id && !project.aws_role_verified_at)) && (
         <AutoRefresh />
       )}
 
-      {regeneratingFlash && (
-        <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
-      )}
-      {testSentFlash && (
-        <div className="dash-flash">
-          ✓ Test update sent. Watching for the result — page updates
-          automatically.
+      {(regeneratingFlash || testSentFlash) && (
+        <div className="proj-flashes">
+          {regeneratingFlash && (
+            <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
+          )}
+          {testSentFlash && (
+            <div className="dash-flash">
+              ✓ Test update sent. Watching for the result — page updates
+              automatically.
+            </div>
+          )}
         </div>
       )}
 
-      <ProjectStatusPanel
-        project={project}
-        deploys={deploys ?? []}
-        cfnUrl={cfnUrl}
-      />
-
-      <section className="project-section">
-        <h2 className="dash-h2">Connection</h2>
-        <dl className="project-meta">
-          {hasGitHub && (
-            <>
-              <dt>GitHub repo</dt>
-              <dd>
-                <a
-                  href={`https://github.com/${project.git_repo_full_name}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {project.git_repo_full_name}
-                </a>
-                {project.git_webhook_id && (
-                  <span className="project-meta-pill">webhook installed</span>
-                )}
-              </dd>
-            </>
-          )}
-          {hasEcr && (
-            <>
-              <dt>AWS ECR</dt>
-              <dd>
-                {project.ecr_aws_account_id && (
-                  <code className="aws-code">
-                    {project.ecr_aws_account_id}
-                  </code>
-                )}
-                {project.ecr_repo_name && (
-                  <code className="aws-code" style={{ marginLeft: 8 }}>
-                    {project.ecr_repo_name}
-                  </code>
-                )}
-                {!project.ecr_aws_account_id && !project.ecr_repo_name && (
-                  <span style={{ color: "var(--ink3)" }}>
-                    Watching all ECR repos
-                  </span>
-                )}
-              </dd>
-            </>
-          )}
-          <dt>Connected</dt>
-          <dd>
-            {new Date(project.connected_at).toLocaleString(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })}
-          </dd>
-        </dl>
-      </section>
-
-      {hasEcr && project.ecr_aws_account_id && project.ecr_webhook_token && (
-        <AwsConnectionPanel
-          projectId={project.id}
-          awsAccountId={project.ecr_aws_account_id}
-          awsRegion={project.aws_region}
-          webhookToken={project.ecr_webhook_token}
-          awsRoleVerifiedAt={project.aws_role_verified_at}
-          awsRoleLastCheckedAt={project.aws_role_last_checked_at}
-          cfnTemplateVersion={project.cfn_template_version}
-          discoveryErrors={discoveryErrors}
-          discoveryAt={project.discovery_at}
-          blueprintStatus={project.blueprint_status}
-          lastTestResult={connTestResult}
-          lastTestMessage={connTestMessage}
-        />
-      )}
-
-      <section className="project-section">
-        <h2 className="dash-h2">Blueprint</h2>
+      {/* Hero: the architecture diagram. Dominates the viewport — the
+          customer's first read is "this is my stack". */}
+      <section className="proj-hero">
         <BlueprintView project={project} />
       </section>
 
-      <section className="project-section">
-        <h2 className="dash-h2">Recent updates</h2>
+      {/* Operations: scroll target. Everything below is for managing
+          the project, not viewing it. */}
+      <section className="proj-ops" id="operations">
+        <header className="proj-ops-header">
+          <h2 className="proj-ops-title">Project operations</h2>
+          <p className="proj-ops-sub">
+            Status, connection, recent updates, and settings.
+          </p>
+        </header>
+
+        <ProjectStatusPanel
+          project={project}
+          deploys={deploys ?? []}
+          cfnUrl={cfnUrl}
+        />
+
+        {hasEcr && project.ecr_aws_account_id && project.ecr_webhook_token && (
+          <AwsConnectionPanel
+            projectId={project.id}
+            awsAccountId={project.ecr_aws_account_id}
+            awsRegion={project.aws_region}
+            webhookToken={project.ecr_webhook_token}
+            awsRoleVerifiedAt={project.aws_role_verified_at}
+            awsRoleLastCheckedAt={project.aws_role_last_checked_at}
+            cfnTemplateVersion={project.cfn_template_version}
+            discoveryErrors={discoveryErrors}
+            discoveryAt={project.discovery_at}
+            blueprintStatus={project.blueprint_status}
+            lastTestResult={connTestResult}
+            lastTestMessage={connTestMessage}
+          />
+        )}
+
+        <section className="project-section">
+          <h2 className="dash-h2">Connection</h2>
+          <dl className="project-meta">
+            {hasGitHub && (
+              <>
+                <dt>GitHub repo</dt>
+                <dd>
+                  <a
+                    href={`https://github.com/${project.git_repo_full_name}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {project.git_repo_full_name}
+                  </a>
+                  {project.git_webhook_id && (
+                    <span className="project-meta-pill">webhook installed</span>
+                  )}
+                </dd>
+              </>
+            )}
+            {hasEcr && (
+              <>
+                <dt>AWS ECR</dt>
+                <dd>
+                  {project.ecr_aws_account_id && (
+                    <code className="aws-code">
+                      {project.ecr_aws_account_id}
+                    </code>
+                  )}
+                  {project.ecr_repo_name && (
+                    <code className="aws-code" style={{ marginLeft: 8 }}>
+                      {project.ecr_repo_name}
+                    </code>
+                  )}
+                  {!project.ecr_aws_account_id && !project.ecr_repo_name && (
+                    <span style={{ color: "var(--ink3)" }}>
+                      Watching all ECR repos
+                    </span>
+                  )}
+                </dd>
+              </>
+            )}
+            <dt>Connected</dt>
+            <dd>
+              {new Date(project.connected_at).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </dd>
+          </dl>
+        </section>
+
+        <section className="project-section">
+          <h2 className="dash-h2">Recent updates</h2>
         {!deploys || deploys.length === 0 ? (
           <div className="project-empty">
             <p>
@@ -386,7 +400,58 @@ export default async function ProjectDetailPage({
           />
         </div>
       </section>
-    </>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Sticky compact header at the top of the project page. Pinned to
+ * the top of the viewport so the project's identity + key actions
+ * are always within reach while the customer scrolls through the
+ * diagram. backdrop-blur gives it a sense of depth without taking up
+ * visual real estate the diagram could use.
+ */
+function ProjectStickyHeader({
+  project,
+  summary,
+}: {
+  project: Project;
+  summary?: string | null;
+}) {
+  const status = project.blueprint_status;
+  const statusMeta: Record<
+    string,
+    { label: string; tone: "ok" | "running" | "neutral" | "err" }
+  > = {
+    pending: { label: "Pending", tone: "neutral" },
+    generating: { label: "Generating…", tone: "running" },
+    ready: { label: "Live", tone: "ok" },
+    failed: { label: "Failed", tone: "err" },
+  };
+  const m = statusMeta[status] ?? statusMeta.pending;
+  return (
+    <header className="proj-header">
+      <Link href="/dashboard" className="proj-header-back" aria-label="All projects">
+        ←
+      </Link>
+      <div className="proj-header-text">
+        <h1 className="proj-header-name">{project.name}</h1>
+        {summary && <p className="proj-header-sub">{summary}</p>}
+      </div>
+      <div className="proj-header-actions">
+        <span
+          className={`proj-status-chip proj-status-chip-${m.tone}`}
+          aria-label={`Blueprint ${m.label}`}
+        >
+          <span className="proj-status-dot" aria-hidden />
+          {m.label}
+        </span>
+        <a href="#operations" className="proj-header-jump">
+          Operations ↓
+        </a>
+      </div>
+    </header>
   );
 }
 
