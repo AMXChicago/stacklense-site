@@ -428,7 +428,7 @@ export default function Home() {
         )}
       </div>
 
-      <footer>
+      <footer className="landing-footer">
         <div className="footer-logo">StackLense © 2025</div>
         <div className="footer-links">
           <a className="footer-link" href="#">

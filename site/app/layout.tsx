@@ -21,11 +21,11 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://stacklense.com"),
   title: "StackLense — Your codebase has a memory now",
   description:
-    "StackLense watches every deploy and builds a living blueprint of your architecture. Decisions, services, security choices — all captured automatically.",
+    "StackLense watches every deploy and builds a living blueprint of your architecture.",
   openGraph: {
     title: "StackLense — Your codebase has a memory now",
     description:
-      "Connect your repo or AWS account. Every deploy auto-updates your architecture blueprint. Works with Codex, Claude, Cursor, or any AI agent.",
+      "Connect your repo or AWS account. Every deploy auto-updates your architecture blueprint.",
     images: ["/og.png"],
     url: "https://stacklense.com",
     siteName: "StackLense",
@@ -39,7 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${GeistSans.variable} ${dmMono.variable} ${instrumentSerif.variable}`}
+        className={`${GeistSans.variable} ${dmMono.variable} ${instrumentSerif.variable} bg-bg text-ink antialiased`}
       >
         {children}
       </body>
