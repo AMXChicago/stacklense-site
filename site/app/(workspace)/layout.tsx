@@ -3,19 +3,13 @@ import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
 /**
- * Layout for the project workspace.
+ * Workspace layout — full-bleed shell for the dashboard. No top nav,
+ * no centered max-width container. Auth check only; the page owns
+ * everything visible to the customer.
  *
- * The workspace is a full-viewport application shell with its own
- * navigation rail and main canvas. Unlike the home route group, this
- * layout deliberately renders NO top nav — the project page draws
- * its own UI from edge to edge. Auth still happens here (redirect
- * to /login if no session), but no chrome is added; the page itself
- * is responsible for everything visible to the customer.
- *
- * This is the proper Next.js way to give a sub-tree of the URL
- * (`/dashboard/[projectId]`) a different shell from its siblings
- * (`/dashboard`, `/dashboard/connect`). Route groups in parens
- * don't affect the URL but let layouts diverge.
+ * Per spec: "Single screen, no routing." The dashboard is one URL
+ * (/dashboard/[projectId]) with five regions managed by client
+ * state. This layout's job is auth + nothing else.
  */
 export default async function WorkspaceLayout({
   children,
@@ -30,5 +24,5 @@ export default async function WorkspaceLayout({
   if (!user) {
     redirect("/login");
   }
-  return <div className="ws-root">{children}</div>;
+  return <>{children}</>;
 }
