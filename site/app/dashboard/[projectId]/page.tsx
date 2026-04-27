@@ -10,11 +10,14 @@ import {
 } from "./actions";
 import { DeleteProjectButton } from "./DeleteProjectButton";
 import { AutoRefresh } from "./AutoRefresh";
-import { BlueprintTabs } from "./BlueprintTabs";
+import { BlueprintDiagram } from "./BlueprintDiagram";
+import { BlueprintInventory } from "./BlueprintInventory";
 import { VendorLogo } from "./VendorLogo";
 import { ExportButtons } from "./ExportButtons";
 import { AwsConnectionPanel } from "./AwsConnectionPanel";
+import { ProjectWorkspaceClient } from "./ProjectWorkspaceClient";
 import { buildQuickCreateUrl } from "@/lib/cfn";
+import { summarizeDiscoveryErrors } from "@/lib/cfn";
 
 export const dynamic = "force-dynamic";
 // Re-fetch every 5 seconds while user is on the page so they see status
@@ -75,7 +78,6 @@ type BlueprintCategory = {
 
 type BlueprintShape = {
   summary?: string;
-  // New shape (categorized)
   categories?: BlueprintCategory[];
   connections?: Array<{ from: string; to: string; label?: string }>;
   decisions?: Array<{
@@ -128,6 +130,11 @@ export default async function ProjectDetailPage({
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
+  // Need the user's email for the bottom-right account menu in the
+  // workspace shell.
+  const { data: authData } = await supabase.auth.getUser();
+  const userEmail = authData?.user?.email ?? "";
+
   const SELECT_COLS =
     "id, name, description, notes, connected_at, git_host, git_repo_full_name, git_repo_id, git_webhook_id, git_webhook_secret, ecr_aws_account_id, ecr_repo_name, ecr_webhook_token, blueprint, blueprint_status, blueprint_generated_at, blueprint_error, blueprint_progress, auto_verify_at, aws_role_verified_at, aws_role_last_checked_at, aws_region, cfn_template_version, discovery_snapshot, discovery_at";
 
@@ -147,16 +154,11 @@ export default async function ProjectDetailPage({
     .order("created_at", { ascending: false })
     .limit(10);
 
-  // Auto-verify on first visit when no events have arrived yet. Replaces
+  // Auto-verify on first visit when no events have arrived yet.
   // For AWS-connected projects: try AssumeRole to actively verify the
   // CFN stack is up. If it succeeds, we mark the project verified and
-  // kick off blueprint generation. No synthetic events; no user action
-  // beyond creating the stack.
+  // kick off blueprint generation.
   const verifyResult = await maybeAutoVerify(project);
-
-  // If we just kicked off generation, re-fetch to render the freshly
-  // updated state (status flipped from 'pending' to 'generating',
-  // aws_role_verified_at set).
   if (verifyResult.ran) {
     const refreshed = await supabase
       .from("projects")
@@ -186,328 +188,461 @@ export default async function ProjectDetailPage({
   // The discovery snapshot stores errors[] in a typed shape; pull them
   // out for the connection panel without leaking the full snapshot type.
   const discoveryErrors =
-    (project.discovery_snapshot as
-      | {
-          errors?: Array<{ source: string; message: string }>;
-        }
-      | null)?.errors ?? null;
+    (
+      project.discovery_snapshot as
+        | { errors?: Array<{ source: string; message: string }> }
+        | null
+    )?.errors ?? null;
 
-  // Extract the blueprint here so the sticky header can use its summary
-  // (the LLM's one-sentence description of the project) as the page
-  // subtitle.
-  const bpTop = project.blueprint;
+  const bp = project.blueprint;
+  const summary = bp?.summary ?? project.description;
+  const isLegacyShape =
+    bp && !bp.categories && (bp.services || bp.security_flags || bp.data_flows);
+  const categories = bp?.categories ?? [];
+  const connections = bp?.connections ?? [];
+  const decisions = bp?.decisions ?? [];
+  const risks = bp?.risks ?? [];
 
-  const summary = bpTop?.summary ?? project.description;
+  // Workspace status chip ("● Live" / "● Generating…" / etc.).
+  const statusKindMap: Record<
+    Project["blueprint_status"],
+    { kind: "ok" | "running" | "neutral" | "err"; label: string }
+  > = {
+    pending: { kind: "neutral", label: "Pending" },
+    generating: { kind: "running", label: "Generating…" },
+    ready: { kind: "ok", label: "Live" },
+    failed: { kind: "err", label: "Failed" },
+  };
+  const status = statusKindMap[project.blueprint_status];
 
-  return (
-    <div className="proj-workspace">
-      {(project.blueprint_status === "generating" ||
-        (!!project.ecr_aws_account_id && !project.aws_role_verified_at)) && (
-        <AutoRefresh />
-      )}
+  // The AWS rail item gets a warning dot when there's a permission
+  // gap or the role is no longer assumable.
+  const awsErrSummary = summarizeDiscoveryErrors(discoveryErrors);
+  const awsNeedsAttention =
+    hasEcr &&
+    (awsErrSummary.hasPermissionGap ||
+      (project.aws_role_verified_at === null &&
+        project.aws_role_last_checked_at !== null));
 
-      {/* Sidebar — everything that ISN'T the diagram lives here.
-          Project identity at top, accordion sections below for status,
-          AWS connection, recent updates, and settings. Scrollable. */}
-      <aside className="proj-side">
-        <header className="proj-side-id">
-          <Link href="/dashboard" className="proj-side-back">
-            ← All projects
-          </Link>
-          <div className="proj-side-id-row">
-            <h1 className="proj-side-name">{project.name}</h1>
-            <ProjectStatusChip status={project.blueprint_status} />
-          </div>
-          {summary && <p className="proj-side-sub">{summary}</p>}
-        </header>
-
-        {(regeneratingFlash || testSentFlash) && (
-          <div className="proj-side-flashes">
-            {regeneratingFlash && (
-              <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
-            )}
-            {testSentFlash && (
-              <div className="dash-flash">
-                ✓ Test update sent. Watching for the result.
-              </div>
-            )}
+  const flashes =
+    regeneratingFlash || testSentFlash ? (
+      <>
+        {regeneratingFlash && (
+          <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
+        )}
+        {testSentFlash && (
+          <div className="dash-flash">
+            ✓ Test update sent. Watching for the result.
           </div>
         )}
+      </>
+    ) : null;
 
-        <nav className="proj-side-nav">
-          <details className="proj-side-sec" open>
-            <summary className="proj-side-sec-head">
-              <span>Status</span>
-              <span className="proj-side-chev" aria-hidden>
-                ▾
-              </span>
-            </summary>
-            <div className="proj-side-sec-body">
-              <ProjectStatusPanel
-                project={project}
-                deploys={deploys ?? []}
-                cfnUrl={cfnUrl}
-              />
-            </div>
-          </details>
+  // ========================================================================
+  // Build each view as a ReactNode. The workspace client toggles which
+  // is visible.
+  // ========================================================================
 
-          {hasEcr &&
-            project.ecr_aws_account_id &&
-            project.ecr_webhook_token && (
-              <details className="proj-side-sec">
-                <summary className="proj-side-sec-head">
-                  <span>AWS connection</span>
-                  <span className="proj-side-chev" aria-hidden>
-                    ▾
-                  </span>
-                </summary>
-                <div className="proj-side-sec-body">
-                  <AwsConnectionPanel
-                    projectId={project.id}
-                    awsAccountId={project.ecr_aws_account_id}
-                    awsRegion={project.aws_region}
-                    webhookToken={project.ecr_webhook_token}
-                    awsRoleVerifiedAt={project.aws_role_verified_at}
-                    awsRoleLastCheckedAt={project.aws_role_last_checked_at}
-                    cfnTemplateVersion={project.cfn_template_version}
-                    discoveryErrors={discoveryErrors}
-                    discoveryAt={project.discovery_at}
-                    blueprintStatus={project.blueprint_status}
-                    lastTestResult={connTestResult}
-                    lastTestMessage={connTestMessage}
-                  />
-                </div>
-              </details>
-            )}
+  const blueprintView = (
+    <ViewShell title="Blueprint" subtitle="Architecture diagram">
+      {!bp ? (
+        <EmptyBlueprint status={project.blueprint_status} />
+      ) : isLegacyShape ? (
+        <LegacyBlueprintNotice />
+      ) : (
+        <BlueprintDiagram
+          projectName={project.name}
+          projectSummary={summary}
+          categories={categories}
+          connections={connections}
+        />
+      )}
+    </ViewShell>
+  );
 
-          <details className="proj-side-sec">
-            <summary className="proj-side-sec-head">
-              <span>Connection details</span>
-              <span className="proj-side-chev" aria-hidden>
-                ▾
-              </span>
-            </summary>
-            <div className="proj-side-sec-body">
-              <dl className="project-meta">
-                {hasGitHub && (
-                  <>
-                    <dt>GitHub repo</dt>
-                    <dd>
-                      <a
-                        href={`https://github.com/${project.git_repo_full_name}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {project.git_repo_full_name}
-                      </a>
-                      {project.git_webhook_id && (
-                        <span className="project-meta-pill">
-                          webhook installed
-                        </span>
-                      )}
-                    </dd>
-                  </>
+  const listView = (
+    <ViewShell
+      title="List"
+      subtitle="Every detected component, grouped by category"
+    >
+      {categories.length === 0 ? (
+        <EmptyBlueprint status={project.blueprint_status} />
+      ) : (
+        <div className="view-bp-list">
+          {categories.map((cat) => (
+            <BlueprintCategoryBlock key={cat.key} category={cat} />
+          ))}
+          {project.blueprint_generated_at && bp && (
+            <div className="bp-export-row">
+              <p className="bp-foot">
+                Generated{" "}
+                {new Date(project.blueprint_generated_at).toLocaleString(
+                  undefined,
+                  { dateStyle: "medium", timeStyle: "short" }
                 )}
-                {hasEcr && (
-                  <>
-                    <dt>AWS ECR</dt>
-                    <dd>
-                      {project.ecr_aws_account_id && (
-                        <code className="aws-code">
-                          {project.ecr_aws_account_id}
-                        </code>
-                      )}
-                      {project.ecr_repo_name && (
-                        <code
-                          className="aws-code"
-                          style={{ marginLeft: 8 }}
-                        >
-                          {project.ecr_repo_name}
-                        </code>
-                      )}
-                      {!project.ecr_aws_account_id &&
-                        !project.ecr_repo_name && (
-                          <span style={{ color: "var(--ink3)" }}>
-                            Watching all ECR repos
-                          </span>
-                        )}
-                    </dd>
-                  </>
-                )}
-                <dt>Connected</dt>
-                <dd>
-                  {new Date(project.connected_at).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
-                </dd>
-              </dl>
+              </p>
+              <ExportButtons blueprint={bp} projectName={project.name} />
             </div>
-          </details>
+          )}
+        </div>
+      )}
+    </ViewShell>
+  );
 
-          <details className="proj-side-sec">
-            <summary className="proj-side-sec-head">
-              <span>Recent updates</span>
-              <span className="proj-side-sec-count">
-                {deploys?.length ?? 0}
-              </span>
-              <span className="proj-side-chev" aria-hidden>
-                ▾
-              </span>
-            </summary>
-            <div className="proj-side-sec-body">
-              {!deploys || deploys.length === 0 ? (
-                <div className="project-empty">
-                  <p>
-                    No updates yet. We&rsquo;ll show them here as you ship
-                    new versions.
-                  </p>
-                </div>
-              ) : (
-                <ul className="deploy-list">
-                  {deploys.map((d) => (
-                    <li key={d.id} className="deploy-item">
-                      <div className="deploy-tag">
-                        <span
-                          className={`deploy-source deploy-source-${d.source_type}`}
-                        >
-                          {d.source_type}
-                        </span>
-                        {d.image_tag ?? "(no tag)"}
-                      </div>
-                      <div className="deploy-note">{d.deploy_note ?? ""}</div>
-                      <div className="deploy-time">
-                        {new Date(d.created_at).toLocaleString(undefined, {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </details>
-
-          <details className="proj-side-sec">
-            <summary className="proj-side-sec-head">
-              <span>Settings</span>
-              <span className="proj-side-chev" aria-hidden>
-                ▾
-              </span>
-            </summary>
-            <div className="proj-side-sec-body">
-              {errorMsg && <div className="login-error">{errorMsg}</div>}
-              {savedFlash && (
-                <div className="settings-flash">✓ Changes saved.</div>
-              )}
-
-              <form action={updateProject} className="settings-card">
-                <input
-                  type="hidden"
-                  name="project_id"
-                  value={project.id}
-                />
-                <label className="form-label" htmlFor="settings_name">
-                  Project name
-                </label>
-                <input
-                  id="settings_name"
-                  name="name"
-                  type="text"
-                  required
-                  defaultValue={project.name}
-                  className="login-input"
-                />
-                <label
-                  className="form-label"
-                  htmlFor="settings_description"
-                >
-                  Description
-                </label>
-                <input
-                  id="settings_description"
-                  name="description"
-                  type="text"
-                  defaultValue={project.description ?? ""}
-                  placeholder="What does this project do?"
-                  className="login-input"
-                />
-                <button
-                  type="submit"
-                  className="login-btn settings-save"
-                >
-                  Save changes
-                </button>
-              </form>
-
-              <div className="settings-card settings-danger">
-                <div className="settings-danger-title">Danger zone</div>
-                <p className="settings-danger-desc">
-                  Deleting removes the project, all deploy history, and the
-                  generated blueprint.{" "}
-                  {hasGitHub &&
-                    "Your GitHub webhook is also removed (best-effort)."}{" "}
-                  {hasEcr &&
-                    "Your AWS CloudFormation stack stays in place; delete it manually if you no longer want events to fire."}{" "}
-                  This cannot be undone.
-                </p>
-                <DeleteProjectButton
-                  projectId={project.id}
-                  projectName={project.name}
-                  hasGitHub={hasGitHub}
-                  hasEcr={hasEcr}
-                />
+  const decisionsView = (
+    <ViewShell
+      title="Decisions"
+      subtitle="Architectural choices StackLense inferred from your stack"
+    >
+      {decisions.length === 0 ? (
+        <div className="project-empty">
+          <p>
+            No decisions surfaced yet. They&rsquo;ll appear here once the
+            blueprint has analysed enough of your project to reason about
+            architectural choices.
+          </p>
+        </div>
+      ) : (
+        <ul className="bp-list">
+          {decisions.map((d, i) => (
+            <li key={i} className="bp-item">
+              <div className="bp-item-head">
+                <span className="bp-item-name">{d.title}</span>
+                <span className={`bp-risk bp-risk-${d.risk}`}>{d.risk}</span>
+                <span className="bp-item-tag">{d.category}</span>
               </div>
-            </div>
-          </details>
-        </nav>
-      </aside>
+              <p className="bp-item-desc">{d.rationale}</p>
+              {d.evidence && (
+                <p className="bp-evidence">Evidence: {d.evidence}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </ViewShell>
+  );
 
-      {/* Canvas — the diagram fills everything to the right of the
-          sidebar. The architecture diagram is the page; the sidebar is
-          a toolset alongside it. */}
-      <main className="proj-canvas-pane">
-        <BlueprintView project={project} />
-      </main>
+  const risksView = (
+    <ViewShell
+      title="Risks"
+      subtitle="Things StackLense thinks could break or hurt you"
+    >
+      {risks.length === 0 ? (
+        <div className="project-empty">
+          <p>
+            No risks surfaced. Either we haven&rsquo;t spotted any, or your
+            stack is squeaky clean — both possible, neither guaranteed.
+          </p>
+        </div>
+      ) : (
+        <ul className="bp-list">
+          {risks.map((f, i) => (
+            <li key={i} className="bp-item">
+              <div className="bp-item-head">
+                <span className="bp-item-name">{f.title}</span>
+                <span className={`bp-risk bp-risk-${f.severity}`}>
+                  {f.severity}
+                </span>
+              </div>
+              <p className="bp-item-desc">{f.description}</p>
+              {f.remediation && (
+                <p className="bp-evidence">Fix: {f.remediation}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </ViewShell>
+  );
+
+  const inventoryView = (
+    <ViewShell
+      title="Inventory"
+      subtitle="Raw output of the last AWS discovery scan"
+    >
+      <BlueprintInventory
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        snapshot={project.discovery_snapshot as any}
+        observedAt={project.discovery_at}
+      />
+    </ViewShell>
+  );
+
+  const awsView = hasEcr ? (
+    <ViewShell title="AWS connection" subtitle="Health of the cross-account read role">
+      {project.ecr_aws_account_id && project.ecr_webhook_token && (
+        <>
+          <ProjectStatusPanel
+            project={project}
+            deploys={deploys ?? []}
+            cfnUrl={cfnUrl}
+          />
+          <AwsConnectionPanel
+            projectId={project.id}
+            awsAccountId={project.ecr_aws_account_id}
+            awsRegion={project.aws_region}
+            webhookToken={project.ecr_webhook_token}
+            awsRoleVerifiedAt={project.aws_role_verified_at}
+            awsRoleLastCheckedAt={project.aws_role_last_checked_at}
+            cfnTemplateVersion={project.cfn_template_version}
+            discoveryErrors={discoveryErrors}
+            discoveryAt={project.discovery_at}
+            blueprintStatus={project.blueprint_status}
+            lastTestResult={connTestResult}
+            lastTestMessage={connTestMessage}
+          />
+        </>
+      )}
+    </ViewShell>
+  ) : (
+    <ViewShell title="Status" subtitle="Project health">
+      <ProjectStatusPanel
+        project={project}
+        deploys={deploys ?? []}
+        cfnUrl={cfnUrl}
+      />
+    </ViewShell>
+  );
+
+  const updatesView = (
+    <ViewShell
+      title="Recent updates"
+      subtitle="Deployments and synthetic events seen by StackLense"
+    >
+      {!deploys || deploys.length === 0 ? (
+        <div className="project-empty">
+          <p>
+            No updates yet. We&rsquo;ll show them here as you ship new
+            versions of your project.
+          </p>
+        </div>
+      ) : (
+        <ul className="deploy-list">
+          {deploys.map((d) => (
+            <li key={d.id} className="deploy-item">
+              <div className="deploy-tag">
+                <span
+                  className={`deploy-source deploy-source-${d.source_type}`}
+                >
+                  {d.source_type}
+                </span>
+                {d.image_tag ?? "(no tag)"}
+              </div>
+              <div className="deploy-note">{d.deploy_note ?? ""}</div>
+              <div className="deploy-time">
+                {new Date(d.created_at).toLocaleString(undefined, {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </ViewShell>
+  );
+
+  const settingsView = (
+    <ViewShell
+      title="Settings"
+      subtitle="Project name, description, and the danger zone"
+    >
+      {errorMsg && <div className="login-error">{errorMsg}</div>}
+      {savedFlash && <div className="settings-flash">✓ Changes saved.</div>}
+
+      <form action={updateProject} className="settings-card">
+        <input type="hidden" name="project_id" value={project.id} />
+        <label className="form-label" htmlFor="settings_name">
+          Project name
+        </label>
+        <input
+          id="settings_name"
+          name="name"
+          type="text"
+          required
+          defaultValue={project.name}
+          className="login-input"
+        />
+        <label className="form-label" htmlFor="settings_description">
+          Description
+        </label>
+        <input
+          id="settings_description"
+          name="description"
+          type="text"
+          defaultValue={project.description ?? ""}
+          placeholder="What does this project do?"
+          className="login-input"
+        />
+        <button type="submit" className="login-btn settings-save">
+          Save changes
+        </button>
+      </form>
+
+      <section className="project-section">
+        <h2 className="dash-h2">Connection</h2>
+        <dl className="project-meta">
+          {hasGitHub && (
+            <>
+              <dt>GitHub repo</dt>
+              <dd>
+                <a
+                  href={`https://github.com/${project.git_repo_full_name}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {project.git_repo_full_name}
+                </a>
+                {project.git_webhook_id && (
+                  <span className="project-meta-pill">webhook installed</span>
+                )}
+              </dd>
+            </>
+          )}
+          {hasEcr && (
+            <>
+              <dt>AWS ECR</dt>
+              <dd>
+                {project.ecr_aws_account_id && (
+                  <code className="aws-code">{project.ecr_aws_account_id}</code>
+                )}
+                {project.ecr_repo_name && (
+                  <code className="aws-code" style={{ marginLeft: 8 }}>
+                    {project.ecr_repo_name}
+                  </code>
+                )}
+                {!project.ecr_aws_account_id && !project.ecr_repo_name && (
+                  <span style={{ color: "var(--ink3)" }}>
+                    Watching all ECR repos
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
+          <dt>Connected</dt>
+          <dd>
+            {new Date(project.connected_at).toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </dd>
+        </dl>
+      </section>
+
+      <div className="settings-card settings-danger">
+        <div className="settings-danger-title">Danger zone</div>
+        <p className="settings-danger-desc">
+          Deleting removes the project, all deploy history, and the
+          generated blueprint.{" "}
+          {hasGitHub &&
+            "Your GitHub webhook is also removed (best-effort)."}{" "}
+          {hasEcr &&
+            "Your AWS CloudFormation stack stays in place; delete it manually if you no longer want events to fire."}{" "}
+          This cannot be undone.
+        </p>
+        <DeleteProjectButton
+          projectId={project.id}
+          projectName={project.name}
+          hasGitHub={hasGitHub}
+          hasEcr={hasEcr}
+        />
+      </div>
+    </ViewShell>
+  );
+
+  const autoRefreshSlot =
+    project.blueprint_status === "generating" ||
+    (!!project.ecr_aws_account_id && !project.aws_role_verified_at) ? (
+      <AutoRefresh />
+    ) : null;
+
+  return (
+    <ProjectWorkspaceClient
+      projectName={project.name}
+      status={status}
+      summary={summary}
+      hasAws={hasEcr}
+      awsNeedsAttention={awsNeedsAttention}
+      userEmail={userEmail}
+      counts={{
+        decisions: decisions.length,
+        risks: risks.length,
+        updates: deploys?.length ?? 0,
+      }}
+      flashes={flashes}
+      autoRefreshSlot={autoRefreshSlot}
+      views={{
+        blueprint: blueprintView,
+        list: listView,
+        decisions: decisionsView,
+        risks: risksView,
+        inventory: inventoryView,
+        aws: awsView,
+        updates: updatesView,
+        settings: settingsView,
+      }}
+    />
+  );
+}
+
+// ===========================================================================
+// View shell — common header for each main-pane view.
+// ===========================================================================
+
+function ViewShell({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="view-shell">
+      <header className="view-head">
+        <h2 className="view-title">{title}</h2>
+        {subtitle && <p className="view-subtitle">{subtitle}</p>}
+      </header>
+      <div className="view-body">{children}</div>
     </div>
   );
 }
 
-/**
- * Compact "● Live" / "● Generating…" / "● Failed" pill rendered next
- * to the project name in the workspace sidebar. Tone-driven dot color +
- * label so the customer can see blueprint state at a glance without
- * needing to expand the Status accordion.
- */
-function ProjectStatusChip({
+function EmptyBlueprint({
   status,
 }: {
   status: Project["blueprint_status"];
 }) {
-  const statusMeta: Record<
-    string,
-    { label: string; tone: "ok" | "running" | "neutral" | "err" }
-  > = {
-    pending: { label: "Pending", tone: "neutral" },
-    generating: { label: "Generating…", tone: "running" },
-    ready: { label: "Live", tone: "ok" },
-    failed: { label: "Failed", tone: "err" },
-  };
-  const m = statusMeta[status] ?? statusMeta.pending;
   return (
-    <span
-      className={`proj-status-chip proj-status-chip-${m.tone}`}
-      aria-label={`Blueprint ${m.label}`}
-    >
-      <span className="proj-status-dot" aria-hidden />
-      {m.label}
-    </span>
+    <div className="project-empty">
+      <p>
+        {status === "generating"
+          ? "Building now — your blueprint will appear here. Page refreshes automatically."
+          : status === "failed"
+          ? "We couldn't build the blueprint. Open the AWS connection view for the error and a regenerate button."
+          : "Your blueprint will appear when your first update arrives."}
+      </p>
+    </div>
   );
 }
 
-type StageStatus = "done" | "active" | "pending" | "failed";
+function LegacyBlueprintNotice() {
+  return (
+    <div className="project-empty">
+      <p>
+        This blueprint was built with an older format. Open the AWS connection
+        view and click <strong>Regenerate blueprint</strong> to rebuild it.
+      </p>
+    </div>
+  );
+}
 
+// ===========================================================================
+// Status panel (used in the AWS view) + supporting helpers
+// ===========================================================================
+
+type StageStatus = "done" | "active" | "pending" | "failed";
 type Stage = {
   key: "created" | "connected" | "live";
   label: string;
@@ -516,20 +651,11 @@ type Stage = {
 
 function computeStages(project: Project): Stage[] {
   const isGitHub = !!project.git_repo_full_name;
-
-  // "Connected" means StackLense has verified the wiring works.
-  //   GitHub: webhook installed at connect time -> git_webhook_id present
-  //   AWS:    we successfully called sts:AssumeRole on the customer's
-  //           read-only role -> aws_role_verified_at set
-  //
-  // Neither relies on synthetic events or hand-typed facts. Both are
-  // active proof that the connection is live.
   const connected = isGitHub
     ? !!project.git_webhook_id
     : !!project.aws_role_verified_at;
   const blueprintReady = project.blueprint_status === "ready";
   const blueprintFailed = project.blueprint_status === "failed";
-
   const raw = [
     { key: "created" as const, label: "Created", done: true, failed: false },
     { key: "connected" as const, label: "Connected", done: connected, failed: false },
@@ -540,7 +666,6 @@ function computeStages(project: Project): Stage[] {
       failed: blueprintFailed,
     },
   ];
-
   let foundActive = false;
   return raw.map((s): Stage => {
     let status: StageStatus;
@@ -572,9 +697,6 @@ function ProjectStatusPanel({
   const hasAnySource = isGitHub || isEcr;
   const lastDeploy = deploys[0];
 
-  // Stale = blueprint went live before AND we haven't seen anything in 7+ days.
-  // Project has events from real or test pushes; if none have arrived recently
-  // the connection probably broke.
   const STALE_DAYS = 7;
   const lastEventMs = lastDeploy ? new Date(lastDeploy.created_at).getTime() : null;
   const daysSinceLast =
@@ -624,13 +746,11 @@ function ProjectStatusPanel({
             <>
               <p className="status-action-headline">One step left:</p>
               <p className="status-action-foot">
-                Click <strong>Open AWS setup</strong> below. In AWS, click{" "}
-                <strong>Create stack</strong> (everything&rsquo;s pre-filled).
-                When the stack reaches{" "}
+                Open AWS setup, click <strong>Create stack</strong>{" "}
+                (everything&rsquo;s pre-filled). When the stack reaches{" "}
                 <code className="aws-code">CREATE_COMPLETE</code>, refresh
                 this page — StackLense will detect the connection and build
-                your blueprint automatically. No test events, no manual
-                clicks.
+                your blueprint automatically.
               </p>
               <div className="status-buttons">
                 {cfnUrl && (
@@ -696,8 +816,7 @@ function ProjectStatusPanel({
             <>
               <p className="status-action-text status-action-stale">
                 ⚠ <strong>No updates in {daysSinceLast} days.</strong> Your
-                connection might have broken silently. Run a test update to
-                check the path is still working.
+                connection might have broken silently.
               </p>
               <div className="status-buttons">
                 {hasAnySource && <TestEventButton projectId={project.id} />}
@@ -709,8 +828,7 @@ function ProjectStatusPanel({
           {allDone && !isStale && (
             <>
               <p className="status-action-text">
-                ✓ Your blueprint is live and will rebuild every time you
-                ship something new.{" "}
+                ✓ Your blueprint is live and will rebuild on every push.{" "}
                 {lastDeploy
                   ? `Last update ${formatRelative(lastDeploy.created_at)}.`
                   : ""}
@@ -766,7 +884,6 @@ function ProgressView({ progress }: { progress: BlueprintProgress | null }) {
       )
     : null;
   const stageLabel = STAGE_COPY[stage] ?? "Working…";
-
   return (
     <>
       <p className="status-action-text">
@@ -776,8 +893,7 @@ function ProgressView({ progress }: { progress: BlueprintProgress | null }) {
         )}
       </p>
       <p className="status-action-foot">
-        Most blueprints take 30–90 seconds. Page updates automatically — no
-        need to refresh.
+        Most blueprints take 30–90 seconds. Page updates automatically.
       </p>
     </>
   );
@@ -800,124 +916,6 @@ function formatRelative(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const days = Math.round(hr / 24);
   return `${days}d ago`;
-}
-
-function BlueprintView({ project }: { project: Project }) {
-  if (!project.blueprint) {
-    return (
-      <div className="project-empty">
-        <p>
-          {project.blueprint_status === "generating"
-            ? "Building now — your blueprint will appear here."
-            : project.blueprint_status === "failed"
-            ? "We couldn't build the blueprint. See the Status panel above for the error and a regenerate button."
-            : "Your blueprint will appear when your first update arrives. Track progress in the Status panel above."}
-        </p>
-      </div>
-    );
-  }
-
-  const bp = project.blueprint;
-  const isLegacyShape =
-    !bp.categories && (bp.services || bp.security_flags || bp.data_flows);
-
-  if (isLegacyShape) {
-    return (
-      <div className="project-empty">
-        <p>
-          This blueprint was built with an older format. Click{" "}
-          <strong>Regenerate blueprint</strong> in the Status panel above to
-          rebuild it in the new format.
-        </p>
-      </div>
-    );
-  }
-
-  const categories = bp.categories ?? [];
-  const connections = bp.connections ?? [];
-
-  return (
-    <div className="bp-content">
-      {bp.summary && <p className="bp-summary">{bp.summary}</p>}
-
-      {categories.length > 0 && (
-        <BlueprintTabs
-          projectName={project.name}
-          projectSummary={bp.summary ?? project.description}
-          categories={categories}
-          connections={connections}
-          discoverySnapshot={project.discovery_snapshot}
-          discoveryAt={project.discovery_at}
-          listView={
-            <div className="bp-categories">
-              {categories.map((cat) => (
-                <BlueprintCategoryBlock key={cat.key} category={cat} />
-              ))}
-            </div>
-          }
-        />
-      )}
-
-      {bp.decisions && bp.decisions.length > 0 && (
-        <div className="bp-block">
-          <h3 className="bp-h3">Decisions</h3>
-          <ul className="bp-list">
-            {bp.decisions.map((d, i) => (
-              <li key={i} className="bp-item">
-                <div className="bp-item-head">
-                  <span className="bp-item-name">{d.title}</span>
-                  <span className={`bp-risk bp-risk-${d.risk}`}>{d.risk}</span>
-                  <span className="bp-item-tag">{d.category}</span>
-                </div>
-                <p className="bp-item-desc">{d.rationale}</p>
-                {d.evidence && (
-                  <p className="bp-evidence">Evidence: {d.evidence}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {bp.risks && bp.risks.length > 0 && (
-        <div className="bp-block">
-          <h3 className="bp-h3">Risks</h3>
-          <ul className="bp-list">
-            {bp.risks.map((f, i) => (
-              <li key={i} className="bp-item">
-                <div className="bp-item-head">
-                  <span className="bp-item-name">{f.title}</span>
-                  <span className={`bp-risk bp-risk-${f.severity}`}>
-                    {f.severity}
-                  </span>
-                </div>
-                <p className="bp-item-desc">{f.description}</p>
-                {f.remediation && (
-                  <p className="bp-evidence">Fix: {f.remediation}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {project.blueprint_generated_at && (
-        <div className="bp-export-row">
-          <p className="bp-foot">
-            Generated{" "}
-            {new Date(project.blueprint_generated_at).toLocaleString(
-              undefined,
-              { dateStyle: "medium", timeStyle: "short" }
-            )}
-          </p>
-          <ExportButtons
-            blueprint={bp}
-            projectName={project.name}
-          />
-        </div>
-      )}
-    </div>
-  );
 }
 
 function BlueprintCategoryBlock({
