@@ -100,6 +100,42 @@ export type CanvasNodeData = {
    * to re-run.
    */
   isDimmed: boolean;
+  /**
+   * Boundary edges where this visible node is the *destination*
+   * (incoming) and the source is outside the current visible
+   * subtree. Step 6 renders these as small "← from {Name}" pills
+   * above the node card; clicking one selects the underlying
+   * connection in the inspector.
+   *
+   * Spec: "Edges with one endpoint outside the visible subtree
+   * drop from the canvas. Boundary indicators show the dropped
+   * external connections" (Interactions / Drill-down).
+   */
+  boundaryIn: BoundaryEdge[];
+  /**
+   * Boundary edges where this visible node is the *source*
+   * (outgoing) and the destination is outside the current visible
+   * subtree. Rendered as "→ to {Name}" pills below the node card.
+   */
+  boundaryOut: BoundaryEdge[];
+};
+
+/**
+ * One dropped cross-subtree edge surfaced to the canvas as a
+ * boundary indicator. Carries enough info for the pill to render
+ * its label and to dispatch a connection selection on click.
+ */
+export type BoundaryEdge = {
+  /** ID of the underlying Connection in `project.connections`. */
+  connectionId: string;
+  /** Which side of this edge is the EXTERNAL one. */
+  externalSide: "from" | "to";
+  /** Service ID of the external (non-visible) endpoint. */
+  externalServiceId: string;
+  /** Display name of the external endpoint. */
+  externalServiceName: string;
+  /** Connection type, drives pill colour for webhook-vs-rest. */
+  type: ConnectionType;
 };
 
 // ── Pure helpers (exported for unit tests in later steps) ──────────
@@ -193,9 +229,103 @@ function buildView(project: Project, drillStack: readonly string[]): CanvasView 
   const visibleIds = visibleServiceIdsAt(project, drillStack);
   const visibleSet = new Set(visibleIds);
 
-  // 1. Build nodes (positions filled by dagre).
+  // Boundary edges per visible node — built up in the same pass as
+  // the rolled-up edges below.
+  const boundaryByNode = new Map<
+    string,
+    { in: BoundaryEdge[]; out: BoundaryEdge[] }
+  >();
+  for (const id of visibleIds) {
+    boundaryByNode.set(id, { in: [], out: [] });
+  }
+
+  // 1. Roll up cross-boundary connections to visible ancestors.
+  //
+  //    Three outcomes per Connection:
+  //      a) BOTH endpoints roll up to visible nodes (different
+  //         services): contributes to a deduped rendered edge.
+  //      b) ONE endpoint rolls up to visible, the other doesn't:
+  //         becomes a BOUNDARY indicator anchored on the visible
+  //         side, pointing at the external service.
+  //      c) Neither endpoint rolls up: dropped silently (no anchor
+  //         to attach a boundary pill to).
+  //      d) Both roll up to the SAME visible node (self-loop after
+  //         roll-up): dropped, same as before step 6.
+  type Pair = {
+    from: string;
+    to: string;
+    type: ConnectionType;
+    /** First underlying connection that contributed to this edge —
+     *  used as the selection target when the user clicks it. */
+    primaryConnectionId: string;
+    /** Total connections rolled up into this rendered edge. */
+    rolledUpCount: number;
+    /** All underlying connection IDs (in insertion order). The
+     *  edge inspector can surface "+N more rolled-up" when this
+     *  is greater than 1. */
+    connectionIds: string[];
+  };
+  const seen = new Map<string, Pair>();
+  for (const conn of Object.values(project.connections)) {
+    const fromV = rollUpToVisible(conn.fromServiceId, project, visibleSet);
+    const toV = rollUpToVisible(conn.toServiceId, project, visibleSet);
+
+    // Case (a): both visible, distinct → rendered edge.
+    if (fromV && toV && fromV !== toV) {
+      const key = `${fromV}|${toV}|${conn.type}`;
+      const existing = seen.get(key);
+      if (existing) {
+        existing.rolledUpCount += 1;
+        existing.connectionIds.push(conn.id);
+      } else {
+        seen.set(key, {
+          from: fromV,
+          to: toV,
+          type: conn.type,
+          primaryConnectionId: conn.id,
+          rolledUpCount: 1,
+          connectionIds: [conn.id],
+        });
+      }
+      continue;
+    }
+
+    // Case (b): exactly one side visible → boundary indicator.
+    if (fromV && !toV) {
+      // Visible node is the source, external is the destination.
+      const externalId = conn.toServiceId;
+      const externalName = project.services[externalId]?.name ?? externalId;
+      boundaryByNode.get(fromV)?.out.push({
+        connectionId: conn.id,
+        externalSide: "to",
+        externalServiceId: externalId,
+        externalServiceName: externalName,
+        type: conn.type,
+      });
+      continue;
+    }
+    if (toV && !fromV) {
+      // Visible node is the destination, external is the source.
+      const externalId = conn.fromServiceId;
+      const externalName = project.services[externalId]?.name ?? externalId;
+      boundaryByNode.get(toV)?.in.push({
+        connectionId: conn.id,
+        externalSide: "from",
+        externalServiceId: externalId,
+        externalServiceName: externalName,
+        type: conn.type,
+      });
+      continue;
+    }
+
+    // Case (c) or (d): silently dropped, no boundary anchor.
+  }
+
+  // 2. Build nodes (positions filled by dagre). Done after boundary
+  //    walk so each node can carry its boundary-edge lists in data.
   const rawNodes: Node<CanvasNodeData>[] = visibleIds.map((id) => {
     const service = project.services[id];
+    const boundary = boundaryByNode.get(id) ?? { in: [], out: [] };
     return {
       id,
       type: "service",
@@ -215,23 +345,15 @@ function buildView(project: Project, drillStack: readonly string[]): CanvasView 
         // dimmed set from the active filter (and, in later steps,
         // drill-down / trace state).
         isDimmed: false,
+        boundaryIn: boundary.in,
+        boundaryOut: boundary.out,
       },
     };
   });
 
-  // 2. Roll up cross-boundary connections to visible ancestors.
-  type Pair = { from: string; to: string; type: ConnectionType };
-  const seen = new Map<string, Pair>();
-  for (const conn of Object.values(project.connections)) {
-    const fromV = rollUpToVisible(conn.fromServiceId, project, visibleSet);
-    const toV = rollUpToVisible(conn.toServiceId, project, visibleSet);
-    if (!fromV || !toV || fromV === toV) continue;
-    const key = `${fromV}|${toV}|${conn.type}`;
-    if (!seen.has(key)) {
-      seen.set(key, { from: fromV, to: toV, type: conn.type });
-    }
-  }
-
+  // Edges encode the primary connection ID and rolled-up metadata
+  // in `data` so the canvas's onEdgeClick can dispatch the right
+  // selection without re-resolving from the project.
   const rawEdges: Edge[] = Array.from(seen.values()).map((pair, i) => ({
     id: `edge-${i}-${pair.from}-${pair.to}-${pair.type}`,
     source: pair.from,
@@ -239,6 +361,17 @@ function buildView(project: Project, drillStack: readonly string[]): CanvasView 
     type: "smoothstep",
     animated: false,
     style: edgeStyleFor(pair.type),
+    data: {
+      type: pair.type,
+      primaryConnectionId: pair.primaryConnectionId,
+      rolledUpCount: pair.rolledUpCount,
+      connectionIds: pair.connectionIds,
+      // Canvas.tsx overlays these after the layout pass, same
+      // pattern as nodes — keeps dagre out of the selection /
+      // filter re-render path.
+      isSelected: false,
+      isDimmed: false,
+    },
   }));
 
   // 3. Dagre layout (top → bottom).

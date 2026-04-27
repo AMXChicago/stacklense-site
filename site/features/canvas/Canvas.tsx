@@ -49,6 +49,7 @@ import {
   Controls,
   ReactFlow,
   type Edge,
+  type EdgeMouseHandler,
   type Node,
   type NodeMouseHandler,
   type NodeTypes,
@@ -68,6 +69,21 @@ import {
   visibleServiceIdsAt,
   type CanvasNodeData,
 } from "./hooks/useCanvasNodes";
+
+/**
+ * Stroke style overlay for the SELECTED edge. Spec: "Edges become
+ * first-class clickable objects. On click, edge gets a selection
+ * style (info color, 2px stroke); inspector switches to edge mode."
+ *
+ * Selection styling is applied as an overlay on top of the edge's
+ * type-based base style — same overlay pattern used for dimming
+ * (lib/dimming.ts) so we don't end up with a custom edge component
+ * just for selection. We use --green here as the "info" colour
+ * because the design tokens don't have a dedicated info hue and
+ * green already reads as "the active thing" in this palette.
+ */
+const SELECTED_EDGE_COLOR = "var(--green)";
+const SELECTED_EDGE_WIDTH = 2;
 
 /**
  * "Drillable" predicate — the spec says: "Double-click a Service
@@ -131,6 +147,12 @@ export default function Canvas({ project }: { project: Project }) {
   // pattern. Effect deps cover both directions: drilling in (selected
   // platform vanishes from siblings) and drilling out (selected
   // child vanishes when we climb past it).
+  //
+  // Connection selections are NOT cleared on drill change in step 6.
+  // A selected connection stays selected even when its rendered edge
+  // disappears at a deeper drill — the inspector still shows the
+  // connection's metadata. The user can clear via the strip's X.
+  // This is a deliberate asymmetry; flagging in the PR for review.
   useEffect(() => {
     if (selection.kind === "service" && !visibleSet.has(selection.id)) {
       setSelection({ kind: "none" });
@@ -202,23 +224,38 @@ export default function Canvas({ project }: { project: Project }) {
     });
   }, [laidOutNodes, selection, dimmedIds]);
 
-  // Edge dimming inherits from node dimming — an edge with at least
-  // one dimmed endpoint inherits the same opacity. The edge's
-  // type-based style (solid / dashed / webhook colour) is preserved;
-  // only `opacity` is overlaid. When the dimmed set is empty, return
-  // the original edges array unchanged (cheap fast path for the
-  // common "no filter" case).
+  // Edge styling overlay: combines DIMMING (one or both endpoints
+  // dimmed → 16% opacity) and SELECTION (current connection
+  // selection matches one of this edge's underlying connection ids
+  // → 2px green stroke). Both are applied via `style` overlay so
+  // we don't need a custom edge component.
+  //
+  // Selection match: the rendered edge stores `data.connectionIds`
+  // (array of underlying connection ids that rolled up into this
+  // edge). If the selected connection is in that array, the edge
+  // is "selected" visually.
   const styledEdges = useMemo<Edge[]>(() => {
-    if (dimmedIds.size === 0) return laidOutEdges;
+    const selectedConnectionId =
+      selection.kind === "connection" ? selection.id : null;
+    if (dimmedIds.size === 0 && !selectedConnectionId) return laidOutEdges;
     return laidOutEdges.map((e) => {
       const dimmed = isEdgeDimmed(e.source, e.target, dimmedIds);
+      const ids = (e.data as { connectionIds?: string[] } | undefined)
+        ?.connectionIds;
+      const isSelected =
+        !!selectedConnectionId && !!ids?.includes(selectedConnectionId);
       const baseStyle = e.style ?? {};
-      return {
-        ...e,
-        style: { ...baseStyle, opacity: dimmed ? DIMMED_OPACITY : 1 },
-      };
+      const nextStyle: React.CSSProperties = { ...baseStyle };
+      if (dimmedIds.size > 0) {
+        nextStyle.opacity = dimmed ? DIMMED_OPACITY : 1;
+      }
+      if (isSelected) {
+        nextStyle.stroke = SELECTED_EDGE_COLOR;
+        nextStyle.strokeWidth = SELECTED_EDGE_WIDTH;
+      }
+      return { ...e, style: nextStyle };
     });
-  }, [laidOutEdges, dimmedIds]);
+  }, [laidOutEdges, dimmedIds, selection]);
 
   const fitViewOptions = useMemo(
     () => ({ padding: 0.18, minZoom: 0.5, maxZoom: 1.4 }),
@@ -250,6 +287,35 @@ export default function Canvas({ project }: { project: Project }) {
       setSelection({ kind: "none" });
     }
   }, [selection, setSelection]);
+
+  // Click an edge → select the underlying connection. Mutual
+  // exclusivity with node selection is automatic: setSelection
+  // fully replaces the workspace store's `selection` slot, so a
+  // prior {kind:"service"} value is cleared.
+  //
+  // Click-toggle behaviour mirrors node selection: clicking the
+  // SAME edge again deselects.
+  //
+  // Rolled-up edges select their PRIMARY connection (first
+  // contributor). Step 6's edge inspector surfaces "+N more rolled
+  // up" so the user knows there are siblings.
+  const onEdgeClick = useCallback<EdgeMouseHandler>(
+    (_event, edge) => {
+      const data = edge.data as
+        | { primaryConnectionId?: string }
+        | undefined;
+      const primaryId = data?.primaryConnectionId;
+      if (!primaryId) return;
+      const alreadySelected =
+        selection.kind === "connection" && selection.id === primaryId;
+      if (alreadySelected) {
+        setSelection({ kind: "none" });
+      } else {
+        setSelection({ kind: "connection", id: primaryId });
+      }
+    },
+    [selection, setSelection]
+  );
 
   // Double-click drills into a Service that has children. Non-
   // drillable nodes (kind: "service" leaves like User actor; future
@@ -287,6 +353,8 @@ export default function Canvas({ project }: { project: Project }) {
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        // Step 6: edges become clickable.
+        onEdgeClick={onEdgeClick}
         panOnDrag
         zoomOnScroll
         zoomOnPinch

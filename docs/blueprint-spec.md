@@ -158,6 +158,7 @@ Implementation note: do **not** use separate routes or screens. Same canvas, dif
 - Deduplicate by `(fromId, toId, type)` tuple.
 - Drop self-loops created by roll-up.
 - This rule applies at every drill level.
+- Edges with one endpoint outside the visible subtree drop from the canvas; the canvas renders a small boundary indicator pill near the visible endpoint (`← from {Name}` for incoming, `→ to {Name}` for outgoing). Clicking the pill selects the underlying connection in the edge inspector (step 6).
 
 ### Activity → diff highlight
 Clicking an activity item:
