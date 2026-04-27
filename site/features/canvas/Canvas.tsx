@@ -5,19 +5,30 @@
  * Service graph at the current drill level.
  *
  * Step 1: pan/zoom, no interactions.
- * Step 2 (this step): node clicks + pane clicks drive the workspace
- *   store's `selection`. Selected nodes render a ring (handled inside
+ * Step 2: node clicks + pane clicks drive the workspace store's
+ *   `selection`. Selected nodes render a ring (handled inside
  *   CanvasNode reading `data.isSelected`).
+ * Step 3 (this step): platform filter chips set `filter` in the
+ *   workspace store. Canvas reads it, computes the dimmed set via
+ *   the shared dimming module (lib/dimming.ts), and layers
+ *   `isDimmed` onto nodes + an opacity multiplier onto edges.
+ *   Layout (dagre) is unaffected: only node `data.isDimmed` and
+ *   edge `style.opacity` change when the filter changes.
  *
- * Selection rules (per the user instruction):
+ * Selection rules (unchanged from step 2):
  *   - Click a node → setSelection({ kind: "service", id })
  *   - Click the same node again → deselect (back to { kind: "none" })
  *   - Click the canvas background (pane) → deselect
  *
+ * Filter ↔ selection independence (per the step 3 spec):
+ *   A node can stay selected while dimmed; clicking a dimmed node
+ *   still works. We never disable pointer events on dimmed nodes.
+ *
  * The Canvas component itself is mode-agnostic. Future modes (data
  * flow, simulate) will read selection + drillStack from the store
  * and render different inspector content; the canvas surface stays
- * the same.
+ * the same. Trace mode (step 9) will reuse the same dimming
+ * mechanism with a different "dimmed set" computation.
  */
 
 import { useCallback, useMemo } from "react";
@@ -25,6 +36,7 @@ import {
   Background,
   Controls,
   ReactFlow,
+  type Edge,
   type Node,
   type NodeMouseHandler,
   type NodeTypes,
@@ -32,9 +44,18 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { Project } from "@/lib/types";
+import {
+  DIMMED_OPACITY,
+  dimmedByPlatformFilter,
+  isEdgeDimmed,
+} from "@/lib/dimming";
 import { useWorkspaceStore } from "@/store/workspace-store";
 import CanvasNode from "./CanvasNode";
-import { useCanvasNodes, type CanvasNodeData } from "./hooks/useCanvasNodes";
+import {
+  useCanvasNodes,
+  visibleServiceIdsAt,
+  type CanvasNodeData,
+} from "./hooks/useCanvasNodes";
 
 // Memoised so React Flow doesn't re-instantiate the node-type
 // registry on every render. nodeTypes is a structural prop and a
@@ -45,22 +66,70 @@ export default function Canvas({ project }: { project: Project }) {
   const drillStack = useWorkspaceStore((s) => s.drillStack);
   const selection = useWorkspaceStore((s) => s.selection);
   const setSelection = useWorkspaceStore((s) => s.setSelection);
+  const filter = useWorkspaceStore((s) => s.filter);
 
-  const { nodes: laidOutNodes, edges } = useCanvasNodes(project, drillStack);
+  const { nodes: laidOutNodes, edges: laidOutEdges } = useCanvasNodes(
+    project,
+    drillStack
+  );
 
-  // Augment the laid-out nodes with the current selection state.
-  // Layout (dagre) is independent of selection, so we do this after
-  // the layout pass — keeps the heavy work in useCanvasNodes from
-  // re-running on every click.
+  // Compute the set of dimmed node IDs for the current filter at
+  // the current drill level. Source of truth lives in lib/dimming.ts
+  // — same module will feed step 4 (drill-down dim) and step 9
+  // (trace dim) so the visual treatment is consistent.
+  const dimmedIds = useMemo(
+    () =>
+      dimmedByPlatformFilter(
+        visibleServiceIdsAt(project, drillStack),
+        filter,
+        project
+      ),
+    [project, drillStack, filter]
+  );
+
+  // Augment the laid-out nodes with both selection state and the
+  // dimmed flag. Layout (dagre) is independent of both, so we do
+  // this after the layout pass — keeps the heavy work in
+  // useCanvasNodes from re-running on every click or chip toggle.
+  // Only re-allocate node objects whose flags actually changed —
+  // React Flow does its own equality check on `data` and avoids
+  // remounting nodes when the data reference is stable.
   const nodes = useMemo<Node<CanvasNodeData>[]>(() => {
     const selectedId =
       selection.kind === "service" ? selection.id : null;
-    return laidOutNodes.map((n) =>
-      n.data.isSelected === (n.id === selectedId)
-        ? n
-        : { ...n, data: { ...n.data, isSelected: n.id === selectedId } }
-    );
-  }, [laidOutNodes, selection]);
+    return laidOutNodes.map((n) => {
+      const nextSelected = n.id === selectedId;
+      const nextDimmed = dimmedIds.has(n.id);
+      if (
+        n.data.isSelected === nextSelected &&
+        n.data.isDimmed === nextDimmed
+      ) {
+        return n;
+      }
+      return {
+        ...n,
+        data: { ...n.data, isSelected: nextSelected, isDimmed: nextDimmed },
+      };
+    });
+  }, [laidOutNodes, selection, dimmedIds]);
+
+  // Edge dimming inherits from node dimming — an edge with at least
+  // one dimmed endpoint inherits the same opacity. The edge's
+  // type-based style (solid / dashed / webhook colour) is preserved;
+  // only `opacity` is overlaid. When the dimmed set is empty, return
+  // the original edges array unchanged (cheap fast path for the
+  // common "no filter" case).
+  const styledEdges = useMemo<Edge[]>(() => {
+    if (dimmedIds.size === 0) return laidOutEdges;
+    return laidOutEdges.map((e) => {
+      const dimmed = isEdgeDimmed(e.source, e.target, dimmedIds);
+      const baseStyle = e.style ?? {};
+      return {
+        ...e,
+        style: { ...baseStyle, opacity: dimmed ? DIMMED_OPACITY : 1 },
+      };
+    });
+  }, [laidOutEdges, dimmedIds]);
 
   const fitViewOptions = useMemo(
     () => ({ padding: 0.18, minZoom: 0.5, maxZoom: 1.4 }),
@@ -97,7 +166,7 @@ export default function Canvas({ project }: { project: Project }) {
     <div className="h-full w-full bg-bg3">
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={styledEdges}
         nodeTypes={NODE_TYPES}
         fitView
         fitViewOptions={fitViewOptions}

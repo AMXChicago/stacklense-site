@@ -22,3 +22,8 @@ Thumbs.db
 
 # Vercel
 .vercel
+
+# Claude Code preview launch config (per-developer, not committed).
+# .claude/settings.json IS committed; launch.json holds local
+# server config (commands, ports) that varies per machine.
+.claude/launch.json

@@ -91,6 +91,15 @@ export type CanvasNodeData = {
    * change. CanvasNode renders a selection ring when true.
    */
   isSelected: boolean;
+  /**
+   * True when this node is visually dimmed (~16% opacity). Driven
+   * by the shared dimming mechanism in lib/dimming.ts — used by
+   * step 3 (platform filter), step 4 (drill-down), and step 9
+   * (trace). Like `isSelected`, Canvas.tsx layers this on AFTER
+   * the layout pass so filter / trace changes never cause dagre
+   * to re-run.
+   */
+  isDimmed: boolean;
 };
 
 // ── Pure helpers (exported for unit tests in later steps) ──────────
@@ -201,6 +210,11 @@ function buildView(project: Project, drillStack: readonly string[]): CanvasView 
         // produced by the hook are correct in isolation (e.g.,
         // tests, future export-as-image use cases).
         isSelected: false,
+        // Same pattern as isSelected: defaults to false here, the
+        // canvas overlays the real dimmed flag after computing the
+        // dimmed set from the active filter (and, in later steps,
+        // drill-down / trace state).
+        isDimmed: false,
       },
     };
   });
