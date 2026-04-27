@@ -985,6 +985,369 @@ footer {
 }
 
 /* ============================================================================
+   PROJECT WORKSPACE
+   ============================================================================
+   The project page is its own app shell, not a dash-main scroll page.
+   Two columns:
+     - Sidebar (left, 380px): scrollable accordion of operations
+     - Canvas (right, fills): the diagram, full-bleed
+   Both columns sit BELOW the dash-nav (60px), so the workspace pins
+   to the viewport from there to the bottom edge.
+
+   Implementation: the `proj-workspace` element uses position: fixed
+   to break out of dash-main's max-width / centered padding. The page
+   route still lives under the dashboard layout (so the top nav and
+   auth wrapper apply) but the layout's content area is overridden. */
+
+.proj-workspace {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  background: var(--bg);
+  z-index: 1;
+}
+
+/* When the workspace is mounted we don't want dash-main contributing
+ * extra scroll height — neutralize its padding so the page doesn't
+ * scroll behind the fixed workspace. The workspace covers the
+ * viewport but body scroll could still trigger if dash-main is tall. */
+body:has(.proj-workspace) .dash-main {
+  padding: 0;
+  height: calc(100vh - 60px);
+  overflow: hidden;
+}
+
+/* ---------- Sidebar ---------- */
+
+.proj-side {
+  flex: 0 0 380px;
+  width: 380px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px 0 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Identity block — fixed at the top of the sidebar (not sticky;
+ * scrolls away when sections are long). */
+.proj-side-id {
+  padding: 0 22px 18px;
+  border-bottom: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.proj-side-back {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  text-decoration: none;
+  align-self: flex-start;
+  transition: color 0.15s;
+}
+.proj-side-back:hover {
+  color: var(--ink);
+}
+.proj-side-id-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.proj-side-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+.proj-side-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.55;
+}
+
+/* Status chip pill (compact, lives next to project name) */
+.proj-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.proj-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.proj-status-chip-ok {
+  color: var(--green);
+  border-color: rgba(61, 214, 140, 0.4);
+  background: rgba(61, 214, 140, 0.08);
+}
+.proj-status-chip-ok .proj-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(61, 214, 140, 0.6);
+}
+.proj-status-chip-running {
+  color: #f0b400;
+  border-color: rgba(240, 180, 0, 0.4);
+  background: rgba(240, 180, 0, 0.08);
+}
+.proj-status-chip-running .proj-status-dot {
+  background: #f0b400;
+  animation: proj-status-pulse 1.4s ease-in-out infinite;
+}
+.proj-status-chip-err {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.08);
+}
+.proj-status-chip-err .proj-status-dot {
+  background: #ff6b6b;
+}
+.proj-status-chip-neutral {
+  color: var(--ink2);
+  border-color: var(--border2);
+  background: var(--bg);
+}
+.proj-status-chip-neutral .proj-status-dot {
+  background: var(--ink3);
+}
+@keyframes proj-status-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.proj-side-flashes {
+  padding: 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- Accordion sections ---------- */
+
+.proj-side-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+  gap: 4px;
+}
+
+.proj-side-sec {
+  border-radius: 10px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.proj-side-sec[open] {
+  background: var(--bg);
+}
+
+.proj-side-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink2);
+  transition: color 0.15s, background 0.15s;
+}
+.proj-side-sec-head::-webkit-details-marker { display: none; }
+.proj-side-sec-head:hover {
+  color: var(--ink);
+  background: var(--bg);
+}
+.proj-side-sec[open] > .proj-side-sec-head {
+  color: var(--ink);
+}
+.proj-side-sec-head > span:first-child {
+  flex: 1;
+}
+.proj-side-sec-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink3);
+  background: var(--bg2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
+}
+.proj-side-chev {
+  font-size: 11px;
+  color: var(--ink3);
+  transition: transform 0.2s;
+}
+.proj-side-sec[open] > .proj-side-sec-head > .proj-side-chev {
+  transform: rotate(180deg);
+}
+
+/* The body of each section. Reins in the wide-page styles of nested
+ * components (project-section, AwsConnectionPanel, etc.) so they fit
+ * inside a 380px sidebar without their full-page chrome. */
+.proj-side-sec-body {
+  padding: 6px 14px 16px;
+}
+.proj-side-sec-body .project-section {
+  padding: 0;
+  border: none;
+  margin: 0 0 12px;
+  background: transparent;
+}
+.proj-side-sec-body .project-section:last-child {
+  margin-bottom: 0;
+}
+.proj-side-sec-body .dash-h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink3);
+  margin: 0 0 10px;
+}
+/* The status panel + AWS connection panel internals are designed for
+ * full-page width. In the sidebar, give their cards minimal padding
+ * and let any horizontal content scroll within its container. */
+.proj-side-sec-body .status-card,
+.proj-side-sec-body .aws-conn-card {
+  padding: 14px;
+}
+.proj-side-sec-body .aws-conn-update {
+  padding: 14px 12px;
+}
+.proj-side-sec-body .aws-conn-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.proj-side-sec-body .aws-conn-actions a,
+.proj-side-sec-body .aws-conn-actions form,
+.proj-side-sec-body .aws-conn-actions form button,
+.proj-side-sec-body .aws-conn-actions .aws-action-btn {
+  width: 100%;
+  text-align: center;
+  justify-content: center;
+}
+.proj-side-sec-body .aws-conn-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.proj-side-sec-body .status-buttons {
+  flex-direction: column;
+  align-items: stretch;
+}
+.proj-side-sec-body .status-buttons > * {
+  width: 100%;
+}
+.proj-side-sec-body .status-secondary-btn,
+.proj-side-sec-body .aws-action-btn {
+  text-align: center;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.proj-side-sec-body .settings-card {
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+.proj-side-sec-body .login-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.proj-side-sec-body .deploy-list {
+  padding: 0;
+}
+.proj-side-sec-body .aws-conn-update-steps,
+.proj-side-sec-body .aws-conn-update-compact {
+  padding-left: 18px;
+}
+.proj-side-sec-body .aws-conn-copy-row {
+  flex-direction: column;
+  gap: 6px;
+}
+.proj-side-sec-body .aws-conn-copy-row .copy-btn {
+  align-self: flex-start;
+}
+
+/* ---------- Canvas (the main pane) ---------- */
+
+.proj-canvas-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  overflow: auto;
+  background: var(--bg);
+}
+.proj-canvas-pane > .bp-content {
+  padding: 24px 28px 32px;
+}
+.proj-canvas-pane > .project-empty {
+  margin: 32px;
+}
+
+/* The architecture board (.arch-board) is the diagram's outer
+ * container. Inside the canvas pane, drop its own bg/border so it
+ * blends with the canvas. The hero + chip row + flow already
+ * communicate identity. */
+.proj-canvas-pane .arch-board {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 24px 28px 0;
+}
+.proj-canvas-pane .arch-canvas {
+  /* Reach to the bottom edge of the pane minus the hero/chip area
+   * above. Use viewport-based height as a fallback when the pane
+   * isn't measured. */
+  height: calc(100vh - 60px - 280px);
+  min-height: 420px;
+  margin-bottom: 0;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 920px) {
+  .proj-workspace {
+    flex-direction: column;
+  }
+  .proj-side {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .proj-canvas-pane {
+    min-height: 50vh;
+  }
+}
+
+/* ============================================================================
    CONNECT FLOW
    ============================================================================ */
 

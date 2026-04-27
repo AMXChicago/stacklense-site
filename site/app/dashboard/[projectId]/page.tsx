@@ -197,229 +197,294 @@ export default async function ProjectDetailPage({
   // subtitle.
   const bpTop = project.blueprint;
 
-  return (
-    <div className="proj-shell">
-      <ProjectStickyHeader
-        project={project}
-        summary={bpTop?.summary ?? project.description}
-      />
+  const summary = bpTop?.summary ?? project.description;
 
+  return (
+    <div className="proj-workspace">
       {(project.blueprint_status === "generating" ||
         (!!project.ecr_aws_account_id && !project.aws_role_verified_at)) && (
         <AutoRefresh />
       )}
 
-      {(regeneratingFlash || testSentFlash) && (
-        <div className="proj-flashes">
-          {regeneratingFlash && (
-            <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
-          )}
-          {testSentFlash && (
-            <div className="dash-flash">
-              ✓ Test update sent. Watching for the result — page updates
-              automatically.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Hero: the architecture diagram. Dominates the viewport — the
-          customer's first read is "this is my stack". */}
-      <section className="proj-hero">
-        <BlueprintView project={project} />
-      </section>
-
-      {/* Operations: scroll target. Everything below is for managing
-          the project, not viewing it. */}
-      <section className="proj-ops" id="operations">
-        <header className="proj-ops-header">
-          <h2 className="proj-ops-title">Project operations</h2>
-          <p className="proj-ops-sub">
-            Status, connection, recent updates, and settings.
-          </p>
+      {/* Sidebar — everything that ISN'T the diagram lives here.
+          Project identity at top, accordion sections below for status,
+          AWS connection, recent updates, and settings. Scrollable. */}
+      <aside className="proj-side">
+        <header className="proj-side-id">
+          <Link href="/dashboard" className="proj-side-back">
+            ← All projects
+          </Link>
+          <div className="proj-side-id-row">
+            <h1 className="proj-side-name">{project.name}</h1>
+            <ProjectStatusChip status={project.blueprint_status} />
+          </div>
+          {summary && <p className="proj-side-sub">{summary}</p>}
         </header>
 
-        <ProjectStatusPanel
-          project={project}
-          deploys={deploys ?? []}
-          cfnUrl={cfnUrl}
-        />
-
-        {hasEcr && project.ecr_aws_account_id && project.ecr_webhook_token && (
-          <AwsConnectionPanel
-            projectId={project.id}
-            awsAccountId={project.ecr_aws_account_id}
-            awsRegion={project.aws_region}
-            webhookToken={project.ecr_webhook_token}
-            awsRoleVerifiedAt={project.aws_role_verified_at}
-            awsRoleLastCheckedAt={project.aws_role_last_checked_at}
-            cfnTemplateVersion={project.cfn_template_version}
-            discoveryErrors={discoveryErrors}
-            discoveryAt={project.discovery_at}
-            blueprintStatus={project.blueprint_status}
-            lastTestResult={connTestResult}
-            lastTestMessage={connTestMessage}
-          />
+        {(regeneratingFlash || testSentFlash) && (
+          <div className="proj-side-flashes">
+            {regeneratingFlash && (
+              <div className="dash-flash">⟳ Rebuilding your blueprint…</div>
+            )}
+            {testSentFlash && (
+              <div className="dash-flash">
+                ✓ Test update sent. Watching for the result.
+              </div>
+            )}
+          </div>
         )}
 
-        <section className="project-section">
-          <h2 className="dash-h2">Connection</h2>
-          <dl className="project-meta">
-            {hasGitHub && (
-              <>
-                <dt>GitHub repo</dt>
-                <dd>
-                  <a
-                    href={`https://github.com/${project.git_repo_full_name}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {project.git_repo_full_name}
-                  </a>
-                  {project.git_webhook_id && (
-                    <span className="project-meta-pill">webhook installed</span>
-                  )}
-                </dd>
-              </>
-            )}
-            {hasEcr && (
-              <>
-                <dt>AWS ECR</dt>
-                <dd>
-                  {project.ecr_aws_account_id && (
-                    <code className="aws-code">
-                      {project.ecr_aws_account_id}
-                    </code>
-                  )}
-                  {project.ecr_repo_name && (
-                    <code className="aws-code" style={{ marginLeft: 8 }}>
-                      {project.ecr_repo_name}
-                    </code>
-                  )}
-                  {!project.ecr_aws_account_id && !project.ecr_repo_name && (
-                    <span style={{ color: "var(--ink3)" }}>
-                      Watching all ECR repos
-                    </span>
-                  )}
-                </dd>
-              </>
-            )}
-            <dt>Connected</dt>
-            <dd>
-              {new Date(project.connected_at).toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-            </dd>
-          </dl>
-        </section>
+        <nav className="proj-side-nav">
+          <details className="proj-side-sec" open>
+            <summary className="proj-side-sec-head">
+              <span>Status</span>
+              <span className="proj-side-chev" aria-hidden>
+                ▾
+              </span>
+            </summary>
+            <div className="proj-side-sec-body">
+              <ProjectStatusPanel
+                project={project}
+                deploys={deploys ?? []}
+                cfnUrl={cfnUrl}
+              />
+            </div>
+          </details>
 
-        <section className="project-section">
-          <h2 className="dash-h2">Recent updates</h2>
-        {!deploys || deploys.length === 0 ? (
-          <div className="project-empty">
-            <p>
-              No updates yet. We&rsquo;ll show them here as you ship new
-              versions of your project.
-            </p>
-          </div>
-        ) : (
-          <ul className="deploy-list">
-            {deploys.map((d) => (
-              <li key={d.id} className="deploy-item">
-                <div className="deploy-tag">
-                  <span className={`deploy-source deploy-source-${d.source_type}`}>
-                    {d.source_type}
+          {hasEcr &&
+            project.ecr_aws_account_id &&
+            project.ecr_webhook_token && (
+              <details className="proj-side-sec">
+                <summary className="proj-side-sec-head">
+                  <span>AWS connection</span>
+                  <span className="proj-side-chev" aria-hidden>
+                    ▾
                   </span>
-                  {d.image_tag ?? "(no tag)"}
+                </summary>
+                <div className="proj-side-sec-body">
+                  <AwsConnectionPanel
+                    projectId={project.id}
+                    awsAccountId={project.ecr_aws_account_id}
+                    awsRegion={project.aws_region}
+                    webhookToken={project.ecr_webhook_token}
+                    awsRoleVerifiedAt={project.aws_role_verified_at}
+                    awsRoleLastCheckedAt={project.aws_role_last_checked_at}
+                    cfnTemplateVersion={project.cfn_template_version}
+                    discoveryErrors={discoveryErrors}
+                    discoveryAt={project.discovery_at}
+                    blueprintStatus={project.blueprint_status}
+                    lastTestResult={connTestResult}
+                    lastTestMessage={connTestMessage}
+                  />
                 </div>
-                <div className="deploy-note">{d.deploy_note ?? ""}</div>
-                <div className="deploy-time">
-                  {new Date(d.created_at).toLocaleString(undefined, {
-                    dateStyle: "short",
+              </details>
+            )}
+
+          <details className="proj-side-sec">
+            <summary className="proj-side-sec-head">
+              <span>Connection details</span>
+              <span className="proj-side-chev" aria-hidden>
+                ▾
+              </span>
+            </summary>
+            <div className="proj-side-sec-body">
+              <dl className="project-meta">
+                {hasGitHub && (
+                  <>
+                    <dt>GitHub repo</dt>
+                    <dd>
+                      <a
+                        href={`https://github.com/${project.git_repo_full_name}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {project.git_repo_full_name}
+                      </a>
+                      {project.git_webhook_id && (
+                        <span className="project-meta-pill">
+                          webhook installed
+                        </span>
+                      )}
+                    </dd>
+                  </>
+                )}
+                {hasEcr && (
+                  <>
+                    <dt>AWS ECR</dt>
+                    <dd>
+                      {project.ecr_aws_account_id && (
+                        <code className="aws-code">
+                          {project.ecr_aws_account_id}
+                        </code>
+                      )}
+                      {project.ecr_repo_name && (
+                        <code
+                          className="aws-code"
+                          style={{ marginLeft: 8 }}
+                        >
+                          {project.ecr_repo_name}
+                        </code>
+                      )}
+                      {!project.ecr_aws_account_id &&
+                        !project.ecr_repo_name && (
+                          <span style={{ color: "var(--ink3)" }}>
+                            Watching all ECR repos
+                          </span>
+                        )}
+                    </dd>
+                  </>
+                )}
+                <dt>Connected</dt>
+                <dd>
+                  {new Date(project.connected_at).toLocaleString(undefined, {
+                    dateStyle: "medium",
                     timeStyle: "short",
                   })}
+                </dd>
+              </dl>
+            </div>
+          </details>
+
+          <details className="proj-side-sec">
+            <summary className="proj-side-sec-head">
+              <span>Recent updates</span>
+              <span className="proj-side-sec-count">
+                {deploys?.length ?? 0}
+              </span>
+              <span className="proj-side-chev" aria-hidden>
+                ▾
+              </span>
+            </summary>
+            <div className="proj-side-sec-body">
+              {!deploys || deploys.length === 0 ? (
+                <div className="project-empty">
+                  <p>
+                    No updates yet. We&rsquo;ll show them here as you ship
+                    new versions.
+                  </p>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              ) : (
+                <ul className="deploy-list">
+                  {deploys.map((d) => (
+                    <li key={d.id} className="deploy-item">
+                      <div className="deploy-tag">
+                        <span
+                          className={`deploy-source deploy-source-${d.source_type}`}
+                        >
+                          {d.source_type}
+                        </span>
+                        {d.image_tag ?? "(no tag)"}
+                      </div>
+                      <div className="deploy-note">{d.deploy_note ?? ""}</div>
+                      <div className="deploy-time">
+                        {new Date(d.created_at).toLocaleString(undefined, {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
 
-      <section className="project-section">
-        <h2 className="dash-h2">Settings</h2>
+          <details className="proj-side-sec">
+            <summary className="proj-side-sec-head">
+              <span>Settings</span>
+              <span className="proj-side-chev" aria-hidden>
+                ▾
+              </span>
+            </summary>
+            <div className="proj-side-sec-body">
+              {errorMsg && <div className="login-error">{errorMsg}</div>}
+              {savedFlash && (
+                <div className="settings-flash">✓ Changes saved.</div>
+              )}
 
-        {errorMsg && <div className="login-error">{errorMsg}</div>}
-        {savedFlash && (
-          <div className="settings-flash">✓ Changes saved.</div>
-        )}
+              <form action={updateProject} className="settings-card">
+                <input
+                  type="hidden"
+                  name="project_id"
+                  value={project.id}
+                />
+                <label className="form-label" htmlFor="settings_name">
+                  Project name
+                </label>
+                <input
+                  id="settings_name"
+                  name="name"
+                  type="text"
+                  required
+                  defaultValue={project.name}
+                  className="login-input"
+                />
+                <label
+                  className="form-label"
+                  htmlFor="settings_description"
+                >
+                  Description
+                </label>
+                <input
+                  id="settings_description"
+                  name="description"
+                  type="text"
+                  defaultValue={project.description ?? ""}
+                  placeholder="What does this project do?"
+                  className="login-input"
+                />
+                <button
+                  type="submit"
+                  className="login-btn settings-save"
+                >
+                  Save changes
+                </button>
+              </form>
 
-        <form action={updateProject} className="settings-card">
-          <input type="hidden" name="project_id" value={project.id} />
+              <div className="settings-card settings-danger">
+                <div className="settings-danger-title">Danger zone</div>
+                <p className="settings-danger-desc">
+                  Deleting removes the project, all deploy history, and the
+                  generated blueprint.{" "}
+                  {hasGitHub &&
+                    "Your GitHub webhook is also removed (best-effort)."}{" "}
+                  {hasEcr &&
+                    "Your AWS CloudFormation stack stays in place; delete it manually if you no longer want events to fire."}{" "}
+                  This cannot be undone.
+                </p>
+                <DeleteProjectButton
+                  projectId={project.id}
+                  projectName={project.name}
+                  hasGitHub={hasGitHub}
+                  hasEcr={hasEcr}
+                />
+              </div>
+            </div>
+          </details>
+        </nav>
+      </aside>
 
-          <label className="form-label" htmlFor="settings_name">
-            Project name
-          </label>
-          <input
-            id="settings_name"
-            name="name"
-            type="text"
-            required
-            defaultValue={project.name}
-            className="login-input"
-          />
-
-          <label className="form-label" htmlFor="settings_description">
-            Description
-          </label>
-          <input
-            id="settings_description"
-            name="description"
-            type="text"
-            defaultValue={project.description ?? ""}
-            placeholder="What does this project do?"
-            className="login-input"
-          />
-
-          <button type="submit" className="login-btn settings-save">
-            Save changes
-          </button>
-        </form>
-
-        <div className="settings-card settings-danger">
-          <div className="settings-danger-title">Danger zone</div>
-          <p className="settings-danger-desc">
-            Deleting removes the project, all deploy history, and the
-            generated blueprint. {hasGitHub && "Your GitHub webhook is also removed (best-effort)."} {hasEcr && "Your AWS CloudFormation stack stays in place; delete it manually if you no longer want events to fire."} This cannot be undone.
-          </p>
-          <DeleteProjectButton
-            projectId={project.id}
-            projectName={project.name}
-            hasGitHub={hasGitHub}
-            hasEcr={hasEcr}
-          />
-        </div>
-      </section>
-      </section>
+      {/* Canvas — the diagram fills everything to the right of the
+          sidebar. The architecture diagram is the page; the sidebar is
+          a toolset alongside it. */}
+      <main className="proj-canvas-pane">
+        <BlueprintView project={project} />
+      </main>
     </div>
   );
 }
 
 /**
- * Sticky compact header at the top of the project page. Pinned to
- * the top of the viewport so the project's identity + key actions
- * are always within reach while the customer scrolls through the
- * diagram. backdrop-blur gives it a sense of depth without taking up
- * visual real estate the diagram could use.
+ * Compact "● Live" / "● Generating…" / "● Failed" pill rendered next
+ * to the project name in the workspace sidebar. Tone-driven dot color +
+ * label so the customer can see blueprint state at a glance without
+ * needing to expand the Status accordion.
  */
-function ProjectStickyHeader({
-  project,
-  summary,
+function ProjectStatusChip({
+  status,
 }: {
-  project: Project;
-  summary?: string | null;
+  status: Project["blueprint_status"];
 }) {
-  const status = project.blueprint_status;
   const statusMeta: Record<
     string,
     { label: string; tone: "ok" | "running" | "neutral" | "err" }
@@ -431,27 +496,13 @@ function ProjectStickyHeader({
   };
   const m = statusMeta[status] ?? statusMeta.pending;
   return (
-    <header className="proj-header">
-      <Link href="/dashboard" className="proj-header-back" aria-label="All projects">
-        ←
-      </Link>
-      <div className="proj-header-text">
-        <h1 className="proj-header-name">{project.name}</h1>
-        {summary && <p className="proj-header-sub">{summary}</p>}
-      </div>
-      <div className="proj-header-actions">
-        <span
-          className={`proj-status-chip proj-status-chip-${m.tone}`}
-          aria-label={`Blueprint ${m.label}`}
-        >
-          <span className="proj-status-dot" aria-hidden />
-          {m.label}
-        </span>
-        <a href="#operations" className="proj-header-jump">
-          Operations ↓
-        </a>
-      </div>
-    </header>
+    <span
+      className={`proj-status-chip proj-status-chip-${m.tone}`}
+      aria-label={`Blueprint ${m.label}`}
+    >
+      <span className="proj-status-dot" aria-hidden />
+      {m.label}
+    </span>
   );
 }
 
