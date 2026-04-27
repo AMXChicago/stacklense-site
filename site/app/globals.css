@@ -59,8 +59,17 @@ body::after {
   opacity: 0.4;
 }
 
-/* ── NAV ── */
-nav {
+/* ── LANDING NAV ──
+ * IMPORTANT: this rule used to target the bare `nav` element selector
+ * which leaked styles into EVERY <nav> on the site — including the
+ * workspace rail's <nav className="ws-rail-nav">, which got yanked to
+ * `position: fixed; top: 0; height: 60px; display: flex` and rendered
+ * as a tiny horizontal strip across the top of the viewport.
+ *
+ * Scoped to `.landing-nav` so only the landing page's marketing nav
+ * gets these styles. Other navs (workspace rail, home dashboard nav)
+ * use their own classes and don't inherit anything from this rule. */
+.landing-nav {
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 100;
@@ -1168,16 +1177,30 @@ body:has(.ws-root) {
   gap: 8px;
 }
 
-/* Nav: the scrollable middle of the rail */
+/* Nav: the scrollable middle of the rail.
+ * Defensive overrides: force-reset all the properties that a bare
+ * `nav {}` rule (or any other global element selector) might try to
+ * impose. The workspace nav must always be a vertical-stacking, in-
+ * flow element regardless of what gets added to globals.css later. */
 .ws-rail-nav {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 14px 8px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: auto !important;
+  height: auto !important;
+  border: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 14px 8px 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px !important;
 }
 .ws-nav-section {
   display: flex;

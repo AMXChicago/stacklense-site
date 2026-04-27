@@ -63,7 +63,7 @@ export default function Home() {
   return (
     <>
       {/* NAV */}
-      <nav>
+      <nav className="landing-nav">
         <a className="nav-logo" href="/">
           <div className="nav-logo-mark"></div>
           StackLense
