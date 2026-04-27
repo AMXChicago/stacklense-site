@@ -42,7 +42,7 @@
  * always visible, no overlap with the canvas.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 type ViewKey =
@@ -81,6 +81,19 @@ export function ProjectWorkspaceClient({
   autoRefreshSlot: ReactNode;
 }) {
   const [active, setActive] = useState<ViewKey>("blueprint");
+
+  // Add a `ws-on` class to <body> as a backup for browsers that
+  // don't reliably honour the `:has(.ws-root)` selector. This gives
+  // the CSS reset (overflow: hidden, margin: 0) a plain class hook
+  // to attach to.
+  useEffect(() => {
+    document.body.classList.add("ws-on");
+    document.documentElement.classList.add("ws-on");
+    return () => {
+      document.body.classList.remove("ws-on");
+      document.documentElement.classList.remove("ws-on");
+    };
+  }, []);
 
   const blueprintItems: NavItem[] = [
     { key: "blueprint", label: "Blueprint" },
