@@ -2,7 +2,16 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 
-export default async function DashboardLayout({
+/**
+ * Layout for the "home" routes: project list, connect flow.
+ *
+ * These routes share a top dashboard nav (StackLense brand on the
+ * left, user email + sign out on the right) and a centered main
+ * column. The project workspace lives in a separate route group
+ * (`app/(workspace)/`) and does NOT use this layout — workspace
+ * pages get the full viewport without this nav.
+ */
+export default async function HomeLayout({
   children,
 }: {
   children: React.ReactNode;
