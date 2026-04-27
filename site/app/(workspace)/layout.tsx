@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth";
 
 /**
  * Workspace layout — full-bleed shell for the dashboard. No top nav,
@@ -21,7 +22,9 @@ export default async function WorkspaceLayout({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
+  // Dev-only bypass mirrors the middleware so the canvas can be
+  // loaded locally without a real session. See lib/dev-auth.ts.
+  if (!user && !isDevAuthBypassEnabled()) {
     redirect("/login");
   }
   return <>{children}</>;

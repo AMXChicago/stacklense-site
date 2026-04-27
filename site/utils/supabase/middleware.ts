@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -39,8 +40,10 @@ export const updateSession = async (request: NextRequest) => {
 
   const path = request.nextUrl.pathname;
 
-  // Gate /dashboard for authenticated users only.
-  if (path.startsWith("/dashboard") && !user) {
+  // Gate /dashboard for authenticated users only. Dev-only bypass:
+  // NEXT_PUBLIC_DEV_BYPASS_AUTH=true skips this check so local canvas
+  // work doesn't need a real session (see lib/dev-auth.ts).
+  if (path.startsWith("/dashboard") && !user && !isDevAuthBypassEnabled()) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
