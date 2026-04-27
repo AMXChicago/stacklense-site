@@ -153,6 +153,8 @@ Project
 
 Implementation note: do **not** use separate routes or screens. Same canvas, different filtered view of the same recursive tree. Breadcrumb segments are clickable to climb out. `Esc` climbs one level. Back button in canvas corner climbs one level.
 
+Selection persists across drill changes if the selected entity remains visible. A node is visible if it is in the current subtree. An edge is visible if both endpoints (or one endpoint plus its boundary indicator) are rendered. The same rule applies to both node and edge selection — one visibility check at the drill-change boundary, no per-kind divergence.
+
 ### Edge roll-up rules
 - Connections crossing a drill boundary roll up to the nearest visible ancestor on each end.
 - Deduplicate by `(fromId, toId, type)` tuple.

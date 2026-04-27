@@ -620,7 +620,13 @@ body::after {
  *
  * `interactionWidth` on each edge (React Flow default 20px) creates a
  * wider invisible hit area, so hover triggers reliably even though
- * the visible stroke is thin. */
+ * the visible stroke is thin.
+ *
+ * TODO (palette cleanup): the selected-edge color in Canvas.tsx
+ * uses --green as a stand-in for "info." Add a dedicated --info
+ * token to :root above and swap SELECTED_EDGE_COLOR there. Not
+ * worth a token addition mid-step; bundling with the next palette
+ * pass. */
 .react-flow__edge:hover .react-flow__edge-path {
   stroke-width: 2.5;
   cursor: pointer;

@@ -65,6 +65,7 @@ import {
 import { useWorkspaceStore } from "@/store/workspace-store";
 import CanvasNode from "./CanvasNode";
 import {
+  rollUpToVisible,
   useCanvasNodes,
   visibleServiceIdsAt,
   type CanvasNodeData,
@@ -78,12 +79,26 @@ import {
  * Selection styling is applied as an overlay on top of the edge's
  * type-based base style — same overlay pattern used for dimming
  * (lib/dimming.ts) so we don't end up with a custom edge component
- * just for selection. We use --green here as the "info" colour
- * because the design tokens don't have a dedicated info hue and
- * green already reads as "the active thing" in this palette.
+ * just for selection.
+ *
+ * TODO (palette cleanup pass): the spec calls for "info color" but
+ * our design tokens lack a dedicated `--info` hue. Using --green
+ * here because it reads as "the active thing" in this palette.
+ * When --info is added in a future cleanup pass, swap this constant
+ * to `var(--info)` — single line change.
  */
 const SELECTED_EDGE_COLOR = "var(--green)";
 const SELECTED_EDGE_WIDTH = 2;
+
+/**
+ * TODO (boundary-pill density, deferred from step 6 review): when
+ * a single visible node accumulates more than ~5 boundary edges in
+ * one direction, collapse the overflow into a "+N more" pill that
+ * expands on hover or click. The current fixture's busiest node
+ * (createOrder at Lambda interior) has 2 boundary outs, well under
+ * the threshold. Revisit when real introspection data lands and
+ * we see hubs with many external dependencies.
+ */
 
 /**
  * "Drillable" predicate — the spec says: "Double-click a Service
@@ -140,24 +155,49 @@ export default function Canvas({ project }: { project: Project }) {
     [project, drillStack]
   );
 
-  // Selection ↔ drill rule: if the selected node is no longer in
-  // the visible set after a drill change, clear selection. We use
-  // an effect (not a derived value) because clearing is a state
-  // mutation; running it during render would be a React anti-
-  // pattern. Effect deps cover both directions: drilling in (selected
-  // platform vanishes from siblings) and drilling out (selected
-  // child vanishes when we climb past it).
+  // Selection ↔ drill rule (unified — step 6 merge feedback):
+  //   "Selection persists across drill changes if the selected
+  //    entity remains visible. A node is visible if it is in the
+  //    current subtree. An edge is visible if both endpoints (or
+  //    one endpoint plus its boundary indicator) are rendered."
   //
-  // Connection selections are NOT cleared on drill change in step 6.
-  // A selected connection stays selected even when its rendered edge
-  // disappears at a deeper drill — the inspector still shows the
-  // connection's metadata. The user can clear via the strip's X.
-  // This is a deliberate asymmetry; flagging in the PR for review.
+  // Implementation: one visibility check, dispatched by selection.kind.
+  //   - kind:"service"     → visibleSet.has(id)
+  //   - kind:"connection"  → at least one endpoint rolls up to a
+  //                          visible node (i.e. it renders as either
+  //                          a full edge or a boundary pill).
+  //   - kind:"none"        → nothing to clear.
+  //
+  // Effect (not a derived value) because clearing is a state
+  // mutation; running it during render would be a React anti-pattern.
   useEffect(() => {
-    if (selection.kind === "service" && !visibleSet.has(selection.id)) {
+    if (selection.kind === "none") return;
+    let stillVisible: boolean;
+    if (selection.kind === "service") {
+      stillVisible = visibleSet.has(selection.id);
+    } else {
+      // Connection visibility: at least one endpoint rolls up to
+      // a visible node (either side of the edge is rendered as a
+      // node OR as a boundary pill). If neither rolls up, the
+      // connection has no on-canvas representation at this drill
+      // level → clear selection.
+      const conn = project.connections[selection.id];
+      if (!conn) {
+        stillVisible = false;
+      } else {
+        const fromV = rollUpToVisible(
+          conn.fromServiceId,
+          project,
+          visibleSet
+        );
+        const toV = rollUpToVisible(conn.toServiceId, project, visibleSet);
+        stillVisible = !!(fromV || toV);
+      }
+    }
+    if (!stillVisible) {
       setSelection({ kind: "none" });
     }
-  }, [selection, visibleSet, setSelection]);
+  }, [selection, visibleSet, project, setSelection]);
 
   // Esc climbs one drill level (per spec). Window-level listener
   // because the React Flow canvas can swallow keyboard events when
