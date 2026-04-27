@@ -1,11 +1,18 @@
 /**
- * Dashboard workspace placeholder.
+ * Dashboard workspace page.
  *
- * Renders nothing meaningful — exists to keep the route registered
- * so the build is green during the cleanup phase. The real workspace
- * (top bar, platform row, activity sidebar, canvas, inspector) is
- * implemented across spec build steps 1-12.
+ * Step 1: renders the Canvas (recursive renderer) against a
+ * hardcoded fixture Project. The route URL parameter is read but
+ * NOT yet used to look up a real project — the Supabase adapter is
+ * wired up in spec build step 10.
+ *
+ * Layout for step 1 is intentionally minimal: full-viewport canvas,
+ * no top bar, no sidebar, no inspector. Those regions arrive in
+ * later spec build steps.
  */
+
+import Canvas from "@/features/canvas/Canvas";
+import { SAMPLE_PROJECT } from "@/lib/fixtures/sample-project";
 
 type Params = Promise<{ projectId: string }>;
 
@@ -14,18 +21,15 @@ export default async function WorkspacePage({
 }: {
   params: Params;
 }) {
+  // The route param is read so Next.js doesn't strip it from the
+  // route signature, but step 1 always renders the same fixture.
+  // Real project resolution lands in step 10 (project adapter).
   const { projectId } = await params;
+  void projectId;
+
   return (
-    <main className="min-h-screen bg-bg text-ink p-6">
-      <p className="font-mono text-xs text-ink3">workspace placeholder</p>
-      <h1 className="mt-2 text-lg font-semibold">
-        Project <span className="font-mono text-ink2">{projectId}</span>
-      </h1>
-      <p className="mt-1 text-sm text-ink2">
-        The dashboard is being rebuilt. The recursive canvas, inspector,
-        platform filter, activity sidebar, and mode switcher land in
-        spec build steps 1-12.
-      </p>
-    </main>
+    <div className="h-screen w-screen bg-bg">
+      <Canvas project={SAMPLE_PROJECT} />
+    </div>
   );
 }
