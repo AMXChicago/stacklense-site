@@ -63,9 +63,21 @@
 
 import type { Project } from "@/lib/types";
 
-const NOW = new Date().toISOString();
-const ONE_DAY_AGO = new Date(Date.now() - 1 * 86_400_000).toISOString();
-const THREE_DAYS_AGO = new Date(Date.now() - 3 * 86_400_000).toISOString();
+const NOW_MS = Date.now();
+const NOW = new Date(NOW_MS).toISOString();
+const ONE_DAY_AGO = new Date(NOW_MS - 1 * 86_400_000).toISOString();
+const THREE_DAYS_AGO = new Date(NOW_MS - 3 * 86_400_000).toISOString();
+
+// ── Activity timestamps (step 7) ─────────────────────────────────
+// Spread across the past week so the relative-time formatter
+// exercises every range (minutes, hours, days). Sorted desc by
+// timestamp below.
+const TWO_MIN_AGO = new Date(NOW_MS - 2 * 60_000).toISOString();
+const FOURTEEN_MIN_AGO = new Date(NOW_MS - 14 * 60_000).toISOString();
+const TWO_HOURS_AGO = new Date(NOW_MS - 2 * 3_600_000).toISOString();
+const SIX_HOURS_AGO = new Date(NOW_MS - 6 * 3_600_000).toISOString();
+const TWO_DAYS_AGO = new Date(NOW_MS - 2 * 86_400_000).toISOString();
+const ONE_WEEK_AGO = new Date(NOW_MS - 7 * 86_400_000).toISOString();
 
 export const SAMPLE_PROJECT: Project = {
   id: "sample-project",
@@ -366,5 +378,112 @@ export const SAMPLE_PROJECT: Project = {
       createdAt: NOW,
     },
   },
-  activity: [],
+  // ── Activity feed (step 7) ─────────────────────────────────────
+  // Sorted descending by timestamp per the spec's Project type.
+  // Summary uses a tiny markdown subset:
+  //   **bold**         → service / platform names
+  //   `code`           → version numbers, columns, function names
+  //                      that are best read in monospace
+  // ActivityItem.tsx parses this. Detail strings are plain prose
+  // for the future "diff inspector" (step 8).
+  activity: [
+    {
+      id: "act-added-processRefund",
+      kind: "add",
+      summary: "added **processRefund** function",
+      detail:
+        "New Lambda handler accepts a charge ID and issues a refund via the Stripe API. Wired to a new POST /refunds route.",
+      affectedServiceIds: ["processRefund"],
+      affectedConnectionIds: ["processRefund-stripe"],
+      timestamp: TWO_MIN_AGO,
+      source: "git",
+    },
+    {
+      id: "act-new-edge-anthropic",
+      kind: "edge",
+      summary: "new edge detected: **createOrder** → **Anthropic API**",
+      detail:
+        "createOrder now calls Claude to generate item descriptions. First observed via the introspection layer 14 minutes ago.",
+      affectedServiceIds: ["createOrder", "anthropic"],
+      affectedConnectionIds: ["createOrder-anthropic"],
+      timestamp: FOURTEEN_MIN_AGO,
+      source: "introspection",
+    },
+    {
+      id: "act-deployed-2-4-1",
+      kind: "deploy",
+      summary: "deployed `v2.4.1` to **Lambda**",
+      detail:
+        "Rolled forward from v2.4.0 — fixes the race in processPayment. All six handlers redeployed.",
+      affectedServiceIds: [
+        "lambda",
+        "createUser",
+        "createOrder",
+        "processPayment",
+        "processRefund",
+        "sendReceipt",
+        "uploadAvatar",
+      ],
+      affectedConnectionIds: [],
+      timestamp: TWO_HOURS_AGO,
+      source: "github-actions",
+    },
+    {
+      id: "act-stripe-webhook",
+      kind: "config",
+      summary: "configured **Stripe** webhook endpoint",
+      detail:
+        "Stripe → Lambda webhook now receives charge.succeeded, charge.failed, charge.refunded events. Signature verification enabled.",
+      affectedServiceIds: ["stripe", "lambda"],
+      affectedConnectionIds: ["stripe-lambda"],
+      timestamp: SIX_HOURS_AGO,
+      source: "stripe-cli",
+    },
+    {
+      id: "act-createUser-schema",
+      kind: "change",
+      summary:
+        "**createUser** schema migration: added `phone` column",
+      detail:
+        "Added an optional phone field to the user record. Backfill scheduled for off-peak hours.",
+      affectedServiceIds: ["createUser", "postgres"],
+      affectedConnectionIds: ["createUser-postgres"],
+      timestamp: ONE_DAY_AGO,
+      source: "git",
+    },
+    {
+      id: "act-cognito-mfa",
+      kind: "config",
+      summary: "enabled **MFA** on **Cognito**",
+      detail:
+        "All new sign-ups require TOTP verification. Existing users are prompted on next login.",
+      affectedServiceIds: ["cognito"],
+      affectedConnectionIds: [],
+      timestamp: TWO_DAYS_AGO,
+      source: "aws-console",
+    },
+    {
+      id: "act-removed-sendOldReceipt",
+      kind: "remove",
+      summary: "removed **sendOldReceipt** handler",
+      detail:
+        "Legacy email handler retired in favour of sendReceipt. Subscription deleted from the SES topic.",
+      affectedServiceIds: [],
+      affectedConnectionIds: [],
+      timestamp: THREE_DAYS_AGO,
+      source: "git",
+    },
+    {
+      id: "act-rolled-back-2-4-0",
+      kind: "deploy",
+      summary:
+        "rolled back `v2.4.0` (regression in **processPayment**)",
+      detail:
+        "v2.4.0 introduced a duplicate-charge edge case under high load. Rolled back to v2.3.7 within 18 minutes of detection.",
+      affectedServiceIds: ["processPayment", "lambda"],
+      affectedConnectionIds: [],
+      timestamp: ONE_WEEK_AGO,
+      source: "github-actions",
+    },
+  ],
 };

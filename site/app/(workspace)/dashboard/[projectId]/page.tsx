@@ -6,16 +6,19 @@
  *   Step 2 — Vertical split: canvas on top, inspector beneath.
  *   Step 3 — Adds the platform-row strip above the canvas.
  *   Step 4 — Adds the breadcrumb strip above the platform row.
+ *   Step 7 — Adds the activity sidebar to the left of the canvas.
  *
  *   ┌─────────────────────────────────────────────────────────┐
  *   │ Breadcrumb                                              │  36px
  *   ├─────────────────────────────────────────────────────────┤
  *   │ Platform row                                            │  44px
- *   ├─────────────────────────────────────────────────────────┤
- *   │                                                         │
- *   │                       Canvas                            │  flex-1
- *   │                                                         │
- *   ├─────────────────────────────────────────────────────────┤
+ *   ├──────────┬──────────────────────────────────────────────┤
+ *   │          │                                              │
+ *   │ Activity │            Canvas                            │  flex-1
+ *   │ sidebar  │            (recursive drill-down)            │
+ *   │ (200px)  │                                              │
+ *   │          │                                              │
+ *   ├──────────┴──────────────────────────────────────────────┤
  *   │ Inspector                                               │  280px (spec floor)
  *   └─────────────────────────────────────────────────────────┘
  *
@@ -32,6 +35,7 @@
  * the route param is read but not used.
  */
 
+import ActivitySidebar from "@/features/activity/ActivitySidebar";
 import Breadcrumb from "@/features/breadcrumb/Breadcrumb";
 import Canvas from "@/features/canvas/Canvas";
 import Inspector from "@/features/inspector/Inspector";
@@ -52,8 +56,15 @@ export default async function WorkspacePage({
     <div className="flex h-screen w-screen flex-col bg-bg">
       <Breadcrumb project={SAMPLE_PROJECT} />
       <PlatformRow project={SAMPLE_PROJECT} />
-      <div className="min-h-0 flex-1">
-        <Canvas project={SAMPLE_PROJECT} />
+      {/* Body row: sidebar on the left, canvas filling the rest.
+          `min-h-0` and `min-w-0` are required on the flex children
+          to honour the canvas's overflow scrolling and the sidebar's
+          independent scroll. */}
+      <div className="flex min-h-0 flex-1">
+        <ActivitySidebar project={SAMPLE_PROJECT} />
+        <div className="min-h-0 min-w-0 flex-1">
+          <Canvas project={SAMPLE_PROJECT} />
+        </div>
       </div>
       <div className="h-[280px] min-h-[280px]">
         <Inspector project={SAMPLE_PROJECT} />
