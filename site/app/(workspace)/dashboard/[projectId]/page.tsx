@@ -1,17 +1,27 @@
 /**
  * Dashboard workspace page.
  *
- * Step 1: renders the Canvas (recursive renderer) against a
- * hardcoded fixture Project. The route URL parameter is read but
- * NOT yet used to look up a real project — the Supabase adapter is
- * wired up in spec build step 10.
+ * Step 1 placed the Canvas in a full-viewport container. Step 2
+ * (this step) splits the viewport vertically per spec layout:
  *
- * Layout for step 1 is intentionally minimal: full-viewport canvas,
- * no top bar, no sidebar, no inspector. Those regions arrive in
- * later spec build steps.
+ *   ┌─────────────────────────────────────────────────────────┐
+ *   │                                                         │
+ *   │                       Canvas                            │  flex-1
+ *   │                                                         │
+ *   ├─────────────────────────────────────────────────────────┤
+ *   │ Inspector                                               │  280px (spec floor)
+ *   └─────────────────────────────────────────────────────────┘
+ *
+ * The other regions in the spec layout (top bar, platform row,
+ * activity sidebar) arrive in their own steps and slot into this
+ * shell.
+ *
+ * Real project resolution still lands in step 10 (project adapter);
+ * the route param is read but not used.
  */
 
 import Canvas from "@/features/canvas/Canvas";
+import Inspector from "@/features/inspector/Inspector";
 import { SAMPLE_PROJECT } from "@/lib/fixtures/sample-project";
 
 type Params = Promise<{ projectId: string }>;
@@ -21,15 +31,17 @@ export default async function WorkspacePage({
 }: {
   params: Params;
 }) {
-  // The route param is read so Next.js doesn't strip it from the
-  // route signature, but step 1 always renders the same fixture.
-  // Real project resolution lands in step 10 (project adapter).
   const { projectId } = await params;
   void projectId;
 
   return (
-    <div className="h-screen w-screen bg-bg">
-      <Canvas project={SAMPLE_PROJECT} />
+    <div className="flex h-screen w-screen flex-col bg-bg">
+      <div className="min-h-0 flex-1">
+        <Canvas project={SAMPLE_PROJECT} />
+      </div>
+      <div className="h-[280px] min-h-[280px]">
+        <Inspector project={SAMPLE_PROJECT} />
+      </div>
     </div>
   );
 }

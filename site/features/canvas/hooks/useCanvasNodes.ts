@@ -83,6 +83,14 @@ export type CanvasNodeData = {
   changedRecently: boolean;
   /** Signal to step 4 / 5: this node has children that drill-down can open. */
   hasChildren: boolean;
+  /**
+   * True when this node is the current selection in the workspace
+   * store. Set by Canvas.tsx after the hook returns — the hook
+   * itself defaults to false so the layout pass doesn't depend on
+   * selection state and dagre runs only when project/drillStack
+   * change. CanvasNode renders a selection ring when true.
+   */
+  isSelected: boolean;
 };
 
 // ── Pure helpers (exported for unit tests in later steps) ──────────
@@ -188,6 +196,11 @@ function buildView(project: Project, drillStack: readonly string[]): CanvasView 
         platformColor: platformColorFor(service, project),
         changedRecently: isWithinDays(service.lastChangedAt, 7),
         hasChildren: hasChildren(service, project),
+        // Canvas.tsx overrides this per render based on the current
+        // workspace-store selection. Default false here so nodes
+        // produced by the hook are correct in isolation (e.g.,
+        // tests, future export-as-image use cases).
+        isSelected: false,
       },
     };
   });
