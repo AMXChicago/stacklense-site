@@ -1005,32 +1005,49 @@ footer {
    by the body:has() selectors below so the workspace owns the
    viewport. */
 
-/* When the workspace mounts it adds `ws-mode` to <body> via useEffect,
- * giving us a reliable hook (plain class selectors > :has() across
- * browsers) to neutralise the global dash-nav and dash-main padding so
- * the workspace owns the entire viewport with no top cut-off. */
-body.ws-mode .dash-nav {
+/* The workspace owns the entire viewport. We use THREE redundant
+ * selectors to hide the dash-nav so the project page's top isn't
+ * eaten by the global navigation bar regardless of which selector
+ * the browser honours first:
+ *   - body.ws-mode (set by useEffect in the workspace client)
+ *   - body:has(.proj-ws) (modern :has() support)
+ *   - .dash-shell:has(.proj-ws) (scoped fallback)
+ *
+ * All marked !important so they win over .dash-nav's own
+ * `display: flex` rule. */
+body.ws-mode .dash-nav,
+body:has(.proj-ws) .dash-nav,
+.dash-shell:has(.proj-ws) .dash-nav {
   display: none !important;
 }
-body.ws-mode .dash-main {
+body.ws-mode .dash-main,
+body:has(.proj-ws) .dash-main,
+.dash-shell:has(.proj-ws) .dash-main {
   padding: 0 !important;
   margin: 0 !important;
   max-width: none !important;
   height: 100vh !important;
   overflow: hidden !important;
 }
-body.ws-mode .dash-shell {
+body.ws-mode .dash-shell,
+body:has(.proj-ws) .dash-shell {
   min-height: 0 !important;
 }
 body.ws-mode {
   overflow: hidden;
 }
 
+/* The workspace shell is a fixed container holding two absolutely-
+ * positioned children: the rail (left, 240px wide) and the main pane
+ * (right, fills the rest). Absolute positioning is bulletproof across
+ * browsers — no flex/grid quirks, no cascade interaction with parent
+ * layouts. Each child has explicit edge coordinates. */
 .proj-ws {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: row;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
   background: var(--bg);
   z-index: 1;
   overflow: hidden;
@@ -1038,24 +1055,30 @@ body.ws-mode {
 
 /* ---------- Rail ---------- */
 
+/* Pinned to the left edge, full height, exactly 240px wide. Children
+ * stack as block elements (no flex layout inside — block stacking is
+ * what we want and is the most predictable). */
 .proj-rail {
-  width: 240px;
-  flex: 0 0 240px;
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 240px !important;
   background: var(--bg2);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
   box-sizing: border-box;
+  z-index: 2;
 }
 
 .proj-rail-top {
+  display: block;
   padding: 18px 18px 14px;
   border-bottom: 1px solid var(--border2);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+}
+.proj-rail-top > * + * {
+  margin-top: 8px;
 }
 .proj-rail-back {
   font-family: var(--mono);
@@ -1069,10 +1092,11 @@ body.ws-mode {
   color: var(--ink);
 }
 .proj-rail-id {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: block;
   margin-top: 2px;
+}
+.proj-rail-id > * + * {
+  margin-top: 6px;
 }
 .proj-rail-name {
   margin: 0;
@@ -1094,22 +1118,25 @@ body.ws-mode {
 }
 
 .proj-rail-flashes {
+  display: block;
   padding: 12px 14px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+}
+.proj-rail-flashes > * + * {
+  margin-top: 8px;
 }
 
 .proj-rail-nav {
+  display: block;
   padding: 14px 8px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+}
+.proj-rail-nav > * + * {
+  margin-top: 18px;
 }
 .proj-nav-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: block;
+}
+.proj-nav-section > * + * {
+  margin-top: 4px;
 }
 .proj-nav-section-label {
   margin: 0 0 4px;
@@ -1244,36 +1271,38 @@ body.ws-mode {
 
 /* ---------- Main pane ---------- */
 
+/* Pinned to the right of the rail, fills the rest of the viewport.
+ * Explicit left:240px (= rail width) and right:0 means the pane
+ * occupies a known rectangle without depending on flex layout. */
 .proj-main {
-  flex: 1 1 auto;
-  min-width: 0;
+  position: absolute !important;
+  left: 240px !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
   background: var(--bg);
   overflow: auto;
-  position: relative;
-  display: flex;
-  flex-direction: column;
+  z-index: 1;
 }
 
 /* Hidden views must stay hidden. The HTML `hidden` attribute defaults
- * to display: none, but in case anything overrides it we re-state it
- * with !important so view-switching is bulletproof. */
+ * to display: none, but we re-state with !important + an
+ * aria-hidden fallback so view-switching is bulletproof. */
 .proj-view[hidden],
 .proj-view[aria-hidden="true"] {
   display: none !important;
 }
 .proj-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .view-shell {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 .view-head {
   padding: 22px 28px 14px;
@@ -1526,14 +1555,19 @@ body.ws-mode {
 /* ---------- Mobile ---------- */
 
 @media (max-width: 920px) {
-  .proj-ws {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
+  /* On narrow viewports the rail takes the top half (~40vh), the
+   * main pane the bottom. Absolute positioning still — just stacked
+   * vertically rather than side-by-side. */
   .proj-rail {
-    border-right: none;
+    width: 100% !important;
+    height: 40vh !important;
+    bottom: auto !important;
+    border-right: none !important;
     border-bottom: 1px solid var(--border);
-    max-height: 50vh;
+  }
+  .proj-main {
+    left: 0 !important;
+    top: 40vh !important;
   }
 }
 
