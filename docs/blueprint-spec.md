@@ -106,7 +106,7 @@ Single screen, no routing. Five regions:
 ### Region specs
 
 - **Top bar** ~50px. Left: project name + multi-level breadcrumb (`Project › AWS › Lambda`) + live pulse indicator. Right: mode switcher (Architecture / Data Flow / Simulate).
-- **Platform row** ~44px. Horizontal scrollable chips, one per top-level platform, plus an "All" reset chip and a search affordance.
+- **Platform row** ~44px. Horizontal scrollable chips, one per top-level platform, plus an "All" reset chip and a search affordance. Search affordance (slash shortcut) is deferred — not in any numbered build step. Track separately.
 - **Activity sidebar** ~200px wide, full body height. Always visible (collapse later if needed). Each item: relative time, kind dot, summary text. Hover preview, click to commit.
 - **Canvas** flexible. Pan/zoom via React Flow or equivalent. Renders the current drill level. Background `--color-background-tertiary`.
 - **Inspector** ~280px min height, full width. Single panel that swaps content based on what's selected (node, edge, function, activity item, or current mode state). The lower bound exists because the strip + tabs + first row of tab content need vertical room to breathe.
@@ -173,6 +173,8 @@ Edges are first-class clickable objects. On click, edge gets a selection style (
 
 ### Filtering
 Platform chips use **dimming**, not hiding. Non-matching nodes drop to ~16% opacity. Preserves the user's mental map. Edges connecting two visible nodes stay visible; edges with one dimmed end inherit the dimmer opacity.
+
+Multiple chips can be active at once. Clicking an active chip deselects it. The "All" chip clears all active filters.
 
 ### Keyboard
 - `/` focus search

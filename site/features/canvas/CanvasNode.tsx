@@ -22,6 +22,7 @@
 
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import type { ServiceStatus } from "@/lib/types";
+import { DIMMED_OPACITY } from "@/lib/dimming";
 import type { CanvasNodeData } from "./hooks/useCanvasNodes";
 
 // Spec colour values verbatim from "Visual conventions > Status dots".
@@ -37,18 +38,32 @@ const CHANGE_INDICATOR_COLOR = "#EF9F27"; // orange dot per spec
 export type CanvasNodeProps = NodeProps & { data: CanvasNodeData };
 
 export default function CanvasNode({ data }: CanvasNodeProps) {
-  const { service, platformColor, changedRecently, hasChildren, isSelected } =
-    data;
+  const {
+    service,
+    platformColor,
+    changedRecently,
+    hasChildren,
+    isSelected,
+    isDimmed,
+  } = data;
   const statusColor = STATUS_COLOR[service.status];
 
   return (
     <div
-      className={`relative flex h-[80px] w-[220px] cursor-pointer flex-col justify-center rounded-lg border border-border2 bg-bg2 px-3 py-2 transition-shadow ${
+      className={`relative flex h-[80px] w-[220px] cursor-pointer flex-col justify-center rounded-lg border border-border2 bg-bg2 px-3 py-2 transition-[opacity,box-shadow] duration-200 ${
         isSelected ? "ring-2 ring-ink ring-offset-2 ring-offset-bg3" : ""
       }`}
       style={{
         borderLeftWidth: 3,
         borderLeftColor: platformColor,
+        // Dim non-matching nodes per the shared dimming mechanism in
+        // lib/dimming.ts. Opacity is the ONLY visual change — the
+        // selection ring, status dot, and platform colour are still
+        // applied so a dimmed-but-selected node remains identifiable
+        // and clickable. Pointer events stay enabled so the user
+        // can still click into a dimmed node (filtering is non-
+        // destructive — it doesn't disable interactions).
+        opacity: isDimmed ? DIMMED_OPACITY : 1,
       }}
     >
       {/* React Flow handles (target on top, source on bottom). Hidden
