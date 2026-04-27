@@ -33,13 +33,20 @@
     "@supabase/supabase-js": "^2.104.1",
     "@types/dagre": "^0.7.54",
     "@vercel/functions": "^3.4.4",
+    "@xyflow/react": "^12.10.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "dagre": "^0.8.5",
     "geist": "^1.7.0",
+    "lucide-react": "^1.11.0",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
     "reactflow": "^11.11.4",
-    "resend": "^6.12.2"
+    "resend": "^6.12.2",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@types/node": "^20",
