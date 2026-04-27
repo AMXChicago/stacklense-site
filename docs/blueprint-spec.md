@@ -151,6 +151,12 @@ Project
 
 Implementation note: do **not** use separate routes or screens. Same canvas, different filtered view of the same recursive tree. Breadcrumb segments are clickable to climb out. `Esc` climbs one level. Back button in canvas corner climbs one level.
 
+### Edge roll-up rules
+- Connections crossing a drill boundary roll up to the nearest visible ancestor on each end.
+- Deduplicate by `(fromId, toId, type)` tuple.
+- Drop self-loops created by roll-up.
+- This rule applies at every drill level.
+
 ### Activity → diff highlight
 Clicking an activity item:
 1. Marks the item as selected (left border accent).
@@ -199,6 +205,7 @@ Platform chips use **dimming**, not hiding. Non-matching nodes drop to ~16% opac
 - Color encodes platform, not state. Each top-level Platform gets one ramp.
 - Maximum 5 platform colors per visible canvas; if more, group lesser-used platforms under a neutral.
 - State (healthy/degraded/changed/active) uses the small overlay indicators only — never recolors the node body.
+- Non-platform services (e.g., User actor, external clients) render in neutral gray. They are exempt from platform filtering — always visible regardless of which platform chip is active.
 
 ---
 
