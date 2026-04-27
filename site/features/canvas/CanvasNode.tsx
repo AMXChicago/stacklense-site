@@ -37,12 +37,15 @@ const CHANGE_INDICATOR_COLOR = "#EF9F27"; // orange dot per spec
 export type CanvasNodeProps = NodeProps & { data: CanvasNodeData };
 
 export default function CanvasNode({ data }: CanvasNodeProps) {
-  const { service, platformColor, changedRecently, hasChildren } = data;
+  const { service, platformColor, changedRecently, hasChildren, isSelected } =
+    data;
   const statusColor = STATUS_COLOR[service.status];
 
   return (
     <div
-      className="relative flex h-[80px] w-[220px] flex-col justify-center rounded-lg border border-border2 bg-bg2 px-3 py-2"
+      className={`relative flex h-[80px] w-[220px] cursor-pointer flex-col justify-center rounded-lg border border-border2 bg-bg2 px-3 py-2 transition-shadow ${
+        isSelected ? "ring-2 ring-ink ring-offset-2 ring-offset-bg3" : ""
+      }`}
       style={{
         borderLeftWidth: 3,
         borderLeftColor: platformColor,
