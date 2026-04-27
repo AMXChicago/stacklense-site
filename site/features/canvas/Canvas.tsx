@@ -72,17 +72,25 @@ import {
 /**
  * "Drillable" predicate — the spec says: "Double-click a Service
  * that contains other Services → enter that Service's interior."
- * Implementation choice (per the step 4 user instruction): only
- * `kind: "platform"` services with children are drillable in this
- * step. Drilling into kind: "service" entries (e.g. RDS Postgres
- * — leaf with no children, or User actor) does nothing.
  *
- * Step 5 will broaden this to any service-with-children when
- * function-level drill (Lambda → processPayment) lands. Keeping
- * the predicate explicit here makes that change a one-line edit.
+ * Step 4 limited this to `kind: "platform"` services with children.
+ * Step 5 broadens it: ANY service with children is drillable. This
+ * was the spec's literal wording all along; step 4 was deliberately
+ * narrower to keep one-level-of-drill the only behaviour exercised.
+ *
+ * Concrete consequences with the current fixture:
+ *   - User actor (kind:"service", no children)        → not drillable
+ *   - AWS (kind:"platform", has children)              → drillable
+ *   - Lambda (kind:"service", has 6 function children) → drillable
+ *   - RDS Postgres (kind:"service", no children)       → not drillable
+ *   - createUser etc. (kind:"function", no children)   → not drillable
+ *
+ * The function-leaf case (functions never have children in this
+ * fixture) means double-clicking a function is a no-op. If a
+ * future step adds line-level drill we just keep adding children
+ * to the model — this predicate already handles it.
  */
 function isDrillable(service: Service, project: Project): boolean {
-  if (service.kind !== "platform") return false;
   for (const candidate of Object.values(project.services)) {
     if (candidate.parentId === service.id) return true;
   }

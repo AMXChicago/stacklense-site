@@ -36,6 +36,23 @@
  *
  *   Order is `project.rootServiceIds` — preserves whatever order the
  *   project adapter (or fixture author) chose. Stable, predictable.
+ *
+ * TODO (revisit in step 7 / activity sidebar): "Filter active at a
+ * deeper level with no chip surface"
+ *   When the user filters to a platform at the project root and then
+ *   drills into a sibling (e.g. filter=Stripe, drill into AWS), every
+ *   AWS-interior node dims because their top-level platform ancestor
+ *   is AWS, not Stripe — but no chip for Stripe is shown at the AWS
+ *   level (chips are per-current-level), so the user can't see WHY
+ *   everything is dimmed and the only visible escape is the "All"
+ *   chip. Behaviorally correct per spec ("filter persists across
+ *   drill changes"), but the UX is opaque.
+ *   Planned mitigation: a small "Filter active: Stripe ✕" indicator
+ *   inside the platform row at deeper levels. One-click clear. Will
+ *   be designed alongside the activity sidebar in step 7 because both
+ *   pieces of state interact with filtering and we want a unified
+ *   "filters applied at this level" treatment rather than one-off
+ *   indicators per source.
  */
 
 import type { Project, Service } from "@/lib/types";
