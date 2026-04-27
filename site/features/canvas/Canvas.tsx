@@ -49,6 +49,7 @@ import {
   Controls,
   ReactFlow,
   type Edge,
+  type EdgeMouseHandler,
   type Node,
   type NodeMouseHandler,
   type NodeTypes,
@@ -64,10 +65,40 @@ import {
 import { useWorkspaceStore } from "@/store/workspace-store";
 import CanvasNode from "./CanvasNode";
 import {
+  rollUpToVisible,
   useCanvasNodes,
   visibleServiceIdsAt,
   type CanvasNodeData,
 } from "./hooks/useCanvasNodes";
+
+/**
+ * Stroke style overlay for the SELECTED edge. Spec: "Edges become
+ * first-class clickable objects. On click, edge gets a selection
+ * style (info color, 2px stroke); inspector switches to edge mode."
+ *
+ * Selection styling is applied as an overlay on top of the edge's
+ * type-based base style — same overlay pattern used for dimming
+ * (lib/dimming.ts) so we don't end up with a custom edge component
+ * just for selection.
+ *
+ * TODO (palette cleanup pass): the spec calls for "info color" but
+ * our design tokens lack a dedicated `--info` hue. Using --green
+ * here because it reads as "the active thing" in this palette.
+ * When --info is added in a future cleanup pass, swap this constant
+ * to `var(--info)` — single line change.
+ */
+const SELECTED_EDGE_COLOR = "var(--green)";
+const SELECTED_EDGE_WIDTH = 2;
+
+/**
+ * TODO (boundary-pill density, deferred from step 6 review): when
+ * a single visible node accumulates more than ~5 boundary edges in
+ * one direction, collapse the overflow into a "+N more" pill that
+ * expands on hover or click. The current fixture's busiest node
+ * (createOrder at Lambda interior) has 2 boundary outs, well under
+ * the threshold. Revisit when real introspection data lands and
+ * we see hubs with many external dependencies.
+ */
 
 /**
  * "Drillable" predicate — the spec says: "Double-click a Service
@@ -124,18 +155,49 @@ export default function Canvas({ project }: { project: Project }) {
     [project, drillStack]
   );
 
-  // Selection ↔ drill rule: if the selected node is no longer in
-  // the visible set after a drill change, clear selection. We use
-  // an effect (not a derived value) because clearing is a state
-  // mutation; running it during render would be a React anti-
-  // pattern. Effect deps cover both directions: drilling in (selected
-  // platform vanishes from siblings) and drilling out (selected
-  // child vanishes when we climb past it).
+  // Selection ↔ drill rule (unified — step 6 merge feedback):
+  //   "Selection persists across drill changes if the selected
+  //    entity remains visible. A node is visible if it is in the
+  //    current subtree. An edge is visible if both endpoints (or
+  //    one endpoint plus its boundary indicator) are rendered."
+  //
+  // Implementation: one visibility check, dispatched by selection.kind.
+  //   - kind:"service"     → visibleSet.has(id)
+  //   - kind:"connection"  → at least one endpoint rolls up to a
+  //                          visible node (i.e. it renders as either
+  //                          a full edge or a boundary pill).
+  //   - kind:"none"        → nothing to clear.
+  //
+  // Effect (not a derived value) because clearing is a state
+  // mutation; running it during render would be a React anti-pattern.
   useEffect(() => {
-    if (selection.kind === "service" && !visibleSet.has(selection.id)) {
+    if (selection.kind === "none") return;
+    let stillVisible: boolean;
+    if (selection.kind === "service") {
+      stillVisible = visibleSet.has(selection.id);
+    } else {
+      // Connection visibility: at least one endpoint rolls up to
+      // a visible node (either side of the edge is rendered as a
+      // node OR as a boundary pill). If neither rolls up, the
+      // connection has no on-canvas representation at this drill
+      // level → clear selection.
+      const conn = project.connections[selection.id];
+      if (!conn) {
+        stillVisible = false;
+      } else {
+        const fromV = rollUpToVisible(
+          conn.fromServiceId,
+          project,
+          visibleSet
+        );
+        const toV = rollUpToVisible(conn.toServiceId, project, visibleSet);
+        stillVisible = !!(fromV || toV);
+      }
+    }
+    if (!stillVisible) {
       setSelection({ kind: "none" });
     }
-  }, [selection, visibleSet, setSelection]);
+  }, [selection, visibleSet, project, setSelection]);
 
   // Esc climbs one drill level (per spec). Window-level listener
   // because the React Flow canvas can swallow keyboard events when
@@ -202,23 +264,38 @@ export default function Canvas({ project }: { project: Project }) {
     });
   }, [laidOutNodes, selection, dimmedIds]);
 
-  // Edge dimming inherits from node dimming — an edge with at least
-  // one dimmed endpoint inherits the same opacity. The edge's
-  // type-based style (solid / dashed / webhook colour) is preserved;
-  // only `opacity` is overlaid. When the dimmed set is empty, return
-  // the original edges array unchanged (cheap fast path for the
-  // common "no filter" case).
+  // Edge styling overlay: combines DIMMING (one or both endpoints
+  // dimmed → 16% opacity) and SELECTION (current connection
+  // selection matches one of this edge's underlying connection ids
+  // → 2px green stroke). Both are applied via `style` overlay so
+  // we don't need a custom edge component.
+  //
+  // Selection match: the rendered edge stores `data.connectionIds`
+  // (array of underlying connection ids that rolled up into this
+  // edge). If the selected connection is in that array, the edge
+  // is "selected" visually.
   const styledEdges = useMemo<Edge[]>(() => {
-    if (dimmedIds.size === 0) return laidOutEdges;
+    const selectedConnectionId =
+      selection.kind === "connection" ? selection.id : null;
+    if (dimmedIds.size === 0 && !selectedConnectionId) return laidOutEdges;
     return laidOutEdges.map((e) => {
       const dimmed = isEdgeDimmed(e.source, e.target, dimmedIds);
+      const ids = (e.data as { connectionIds?: string[] } | undefined)
+        ?.connectionIds;
+      const isSelected =
+        !!selectedConnectionId && !!ids?.includes(selectedConnectionId);
       const baseStyle = e.style ?? {};
-      return {
-        ...e,
-        style: { ...baseStyle, opacity: dimmed ? DIMMED_OPACITY : 1 },
-      };
+      const nextStyle: React.CSSProperties = { ...baseStyle };
+      if (dimmedIds.size > 0) {
+        nextStyle.opacity = dimmed ? DIMMED_OPACITY : 1;
+      }
+      if (isSelected) {
+        nextStyle.stroke = SELECTED_EDGE_COLOR;
+        nextStyle.strokeWidth = SELECTED_EDGE_WIDTH;
+      }
+      return { ...e, style: nextStyle };
     });
-  }, [laidOutEdges, dimmedIds]);
+  }, [laidOutEdges, dimmedIds, selection]);
 
   const fitViewOptions = useMemo(
     () => ({ padding: 0.18, minZoom: 0.5, maxZoom: 1.4 }),
@@ -250,6 +327,35 @@ export default function Canvas({ project }: { project: Project }) {
       setSelection({ kind: "none" });
     }
   }, [selection, setSelection]);
+
+  // Click an edge → select the underlying connection. Mutual
+  // exclusivity with node selection is automatic: setSelection
+  // fully replaces the workspace store's `selection` slot, so a
+  // prior {kind:"service"} value is cleared.
+  //
+  // Click-toggle behaviour mirrors node selection: clicking the
+  // SAME edge again deselects.
+  //
+  // Rolled-up edges select their PRIMARY connection (first
+  // contributor). Step 6's edge inspector surfaces "+N more rolled
+  // up" so the user knows there are siblings.
+  const onEdgeClick = useCallback<EdgeMouseHandler>(
+    (_event, edge) => {
+      const data = edge.data as
+        | { primaryConnectionId?: string }
+        | undefined;
+      const primaryId = data?.primaryConnectionId;
+      if (!primaryId) return;
+      const alreadySelected =
+        selection.kind === "connection" && selection.id === primaryId;
+      if (alreadySelected) {
+        setSelection({ kind: "none" });
+      } else {
+        setSelection({ kind: "connection", id: primaryId });
+      }
+    },
+    [selection, setSelection]
+  );
 
   // Double-click drills into a Service that has children. Non-
   // drillable nodes (kind: "service" leaves like User actor; future
@@ -287,6 +393,8 @@ export default function Canvas({ project }: { project: Project }) {
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        // Step 6: edges become clickable.
+        onEdgeClick={onEdgeClick}
         panOnDrag
         zoomOnScroll
         zoomOnPinch

@@ -261,6 +261,13 @@ export const SAMPLE_PROJECT: Project = {
       toServiceId: "lambda",
       type: "sync",
       what: "HTTP API requests.",
+      // Step 6: schema/frequency/latency populated for three edges
+      // so the edge-inspector tabs (Schema, Stats) have content. The
+      // payload is illustrative — once step 16 wires up live data,
+      // it'll come from the introspection layer.
+      schema: `POST /api/orders\n{\n  "items": [{"sku": "ABC-123", "qty": 2}],\n  "couponCode": "WELCOME10"\n}`,
+      frequency: "~12.4k/day",
+      latency: "180ms p99",
       createdAt: NOW,
     },
     "stripe-lambda": {
@@ -326,6 +333,9 @@ export const SAMPLE_PROJECT: Project = {
       toServiceId: "stripe",
       type: "sync",
       what: "Creates a Stripe charge.",
+      schema: `POST https://api.stripe.com/v1/charges\namount=2099&currency=usd&source=tok_visa`,
+      frequency: "~340/day",
+      latency: "210ms p99",
       createdAt: NOW,
     },
     "processRefund-stripe": {
@@ -342,6 +352,9 @@ export const SAMPLE_PROJECT: Project = {
       toServiceId: "ses",
       type: "async",
       what: "Sends the receipt email.",
+      schema: `SES SendEmail (queued via SQS)\n{\n  "to": "user@example.com",\n  "template": "order-receipt",\n  "data": { "orderId": "ord_42" }\n}`,
+      frequency: "~410/day",
+      latency: "≤ 2s end-to-end",
       createdAt: NOW,
     },
     "uploadAvatar-s3": {

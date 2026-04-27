@@ -13,17 +13,20 @@
  *   - Platform colour: applied as the LEFT BORDER of the node body.
  *     Color encodes platform; state is on the overlay dots only.
  *     Never recolours the node body itself.
+ *   - Boundary pills (step 6): "← from {Name}" above, "→ to {Name}"
+ *     below. Surfaces edges that drop because one endpoint is
+ *     outside the visible drill subtree. Click to select the
+ *     underlying connection in the edge inspector.
  *
- * Step 1 has no interactions on the node beyond what React Flow
- * gives us natively (drag-disabled, pan/zoom on the canvas). Click
- * + double-click handlers land in step 2 (inspector) and step 4
- * (drill-down).
+ * Step 1 had no interactions; step 2 added single-click selection,
+ * step 4 added double-click drill, step 6 adds boundary-pill clicks.
  */
 
 import { Handle, type NodeProps, Position } from "@xyflow/react";
-import type { ServiceStatus } from "@/lib/types";
+import type { ConnectionType, ServiceStatus } from "@/lib/types";
 import { DIMMED_OPACITY } from "@/lib/dimming";
-import type { CanvasNodeData } from "./hooks/useCanvasNodes";
+import { useWorkspaceStore } from "@/store/workspace-store";
+import type { BoundaryEdge, CanvasNodeData } from "./hooks/useCanvasNodes";
 
 // Spec colour values verbatim from "Visual conventions > Status dots".
 const STATUS_COLOR: Record<ServiceStatus, string> = {
@@ -45,6 +48,8 @@ export default function CanvasNode({ data }: CanvasNodeProps) {
     hasChildren,
     isSelected,
     isDimmed,
+    boundaryIn,
+    boundaryOut,
   } = data;
   const statusColor = STATUS_COLOR[service.status];
 
@@ -66,6 +71,24 @@ export default function CanvasNode({ data }: CanvasNodeProps) {
         opacity: isDimmed ? DIMMED_OPACITY : 1,
       }}
     >
+      {/* Boundary pills — incoming external edges (step 6).
+          Rendered above the card with absolute positioning so the
+          80×220px node body stays a fixed size for dagre layout.
+          Clicking a pill selects the underlying connection. */}
+      {boundaryIn.length > 0 && (
+        <BoundaryPills
+          edges={boundaryIn}
+          direction="in"
+          className="absolute -top-2 left-3 -translate-y-full"
+        />
+      )}
+      {boundaryOut.length > 0 && (
+        <BoundaryPills
+          edges={boundaryOut}
+          direction="out"
+          className="absolute -bottom-2 left-3 translate-y-full"
+        />
+      )}
       {/* React Flow handles (target on top, source on bottom). Hidden
           visually so the node looks clean; React Flow still routes
           edges to/from them. */}
@@ -116,4 +139,70 @@ export default function CanvasNode({ data }: CanvasNodeProps) {
       />
     </div>
   );
+}
+
+/**
+ * Boundary pill stack — renders the dropped cross-subtree edges
+ * for one direction (incoming above the card, outgoing below).
+ * Multiple boundary edges from the same anchor stack horizontally;
+ * the layout wraps if there are too many for one row.
+ *
+ * The pill itself is a button so it gets keyboard focus + Enter
+ * activation for free. Clicking dispatches a connection selection
+ * via the workspace store.
+ *
+ * Webhook-typed boundary edges get the amber tint matching their
+ * canvas-edge stroke, so users can scan and see "this dropped edge
+ * is a webhook return path" without reading the label closely.
+ */
+function BoundaryPills({
+  edges,
+  direction,
+  className,
+}: {
+  edges: BoundaryEdge[];
+  direction: "in" | "out";
+  className?: string;
+}) {
+  const setSelection = useWorkspaceStore((s) => s.setSelection);
+  return (
+    <div
+      // The pill stack lives outside the 80×220px node body bounds
+      // intentionally — dagre lays out the body, and the pills float
+      // above/below. `pointer-events-auto` so clicks register even
+      // when the parent has the dim opacity applied.
+      className={`flex max-w-[260px] flex-wrap gap-1 pointer-events-auto ${className ?? ""}`}
+    >
+      {edges.map((e) => (
+        <button
+          key={`${direction}-${e.connectionId}`}
+          type="button"
+          onClick={(ev) => {
+            // Stop propagation so the click doesn't also fire the
+            // node's onClick (which would select the node and
+            // overwrite our connection selection).
+            ev.stopPropagation();
+            setSelection({ kind: "connection", id: e.connectionId });
+          }}
+          aria-label={`${direction === "in" ? "Incoming from" : "Outgoing to"} ${e.externalServiceName} (${e.type})`}
+          className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors ${pillToneFor(e.type)}`}
+        >
+          <span aria-hidden>{direction === "in" ? "←" : "→"}</span>
+          <span className="truncate">
+            {direction === "in" ? "from" : "to"} {e.externalServiceName}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function pillToneFor(type: ConnectionType): string {
+  if (type === "webhook") {
+    // Same arbitrary rgba pattern used for webhook tone elsewhere
+    // — Tailwind's `/40`/`/10` opacity modifiers don't compose with
+    // CSS-variable colors, so we hardcode here.
+    return "border-[rgba(245,158,11,0.4)] bg-[rgba(245,158,11,0.1)] text-amber hover:border-amber";
+  }
+  return "border-border2 bg-bg2 text-ink2 hover:border-ink3 hover:text-ink";
 }

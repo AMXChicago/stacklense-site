@@ -612,6 +612,26 @@ body::after {
   border-left: 2px solid var(--red);
 }
 
+/* ── REACT FLOW EDGE HOVER (step 6) ──
+ * Subtle thicker stroke on hover so users get a "this is clickable"
+ * affordance without needing the canvas to fire JS hover events. The
+ * actual click + selection logic lives in features/canvas/Canvas.tsx
+ * onEdgeClick; this is purely cosmetic.
+ *
+ * `interactionWidth` on each edge (React Flow default 20px) creates a
+ * wider invisible hit area, so hover triggers reliably even though
+ * the visible stroke is thin.
+ *
+ * TODO (palette cleanup): the selected-edge color in Canvas.tsx
+ * uses --green as a stand-in for "info." Add a dedicated --info
+ * token to :root above and swap SELECTED_EDGE_COLOR there. Not
+ * worth a token addition mid-step; bundling with the next palette
+ * pass. */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 2.5;
+  cursor: pointer;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
   /* Scoped to landing classes (no bare element selectors) so

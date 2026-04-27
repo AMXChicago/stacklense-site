@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Connections tab — renders the in/out connection lists for the
  * selected service.
@@ -9,13 +11,13 @@
  * connectionsForSelected, which reuses the canvas's
  * rollUpToVisible.
  *
- * Step 2: read-only display. Click handlers on connection rows
- * arrive in step 6 (edge inspector) — clicking a row will switch
- * the inspector into edge mode. Step 2 deliberately ships them as
- * non-interactive list items.
+ * Step 6: rows are clickable. Click → switches inspector into edge
+ * mode by setting selection.kind === "connection". The selected
+ * service's selection is replaced (mutual exclusivity).
  */
 
 import type { Service } from "@/lib/types";
+import { useWorkspaceStore } from "@/store/workspace-store";
 import type { ConnectionView } from "../lib/connections-for";
 
 export default function ConnectionsTab({
@@ -66,6 +68,7 @@ function Section({
   connections: ConnectionView[];
   emptyText: string;
 }) {
+  const setSelection = useWorkspaceStore((s) => s.setSelection);
   return (
     <div>
       <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-ink3">
@@ -76,23 +79,29 @@ function Section({
       ) : (
         <ul className="space-y-1.5">
           {connections.map((c) => (
-            <li
-              key={c.id}
-              className="flex items-center gap-3 rounded-md border border-border2 bg-bg2 px-3 py-2 text-sm"
-            >
-              <span
-                aria-hidden
-                className="font-mono text-xs text-ink3"
+            // Step 6: clickable rows. <button> wraps the row content
+            // so we get keyboard focus + Enter activation for free.
+            // The row LOOKS like a list item but ACTS like a link
+            // into the edge inspector.
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelection({ kind: "connection", id: c.id })
+                }
+                className="flex w-full items-center gap-3 rounded-md border border-border2 bg-bg2 px-3 py-2 text-left text-sm transition-colors hover:border-ink3"
               >
-                {c.direction === "out" ? "→" : "←"}
-              </span>
-              <span className="flex-1 truncate text-ink">
-                {c.otherServiceName}
-              </span>
-              <ConnectionTypePill type={c.type} />
-              <span className="hidden truncate text-xs text-ink3 sm:block sm:max-w-[40%]">
-                {c.what}
-              </span>
+                <span aria-hidden className="font-mono text-xs text-ink3">
+                  {c.direction === "out" ? "→" : "←"}
+                </span>
+                <span className="flex-1 truncate text-ink">
+                  {c.otherServiceName}
+                </span>
+                <ConnectionTypePill type={c.type} />
+                <span className="hidden truncate text-xs text-ink3 sm:block sm:max-w-[40%]">
+                  {c.what}
+                </span>
+              </button>
             </li>
           ))}
         </ul>
