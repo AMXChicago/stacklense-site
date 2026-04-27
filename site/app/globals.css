@@ -1005,25 +1005,32 @@ footer {
    by the body:has() selectors below so the workspace owns the
    viewport. */
 
-body:has(.proj-ws) .dash-nav {
-  display: none;
+/* When the workspace mounts it adds `ws-mode` to <body> via useEffect,
+ * giving us a reliable hook (plain class selectors > :has() across
+ * browsers) to neutralise the global dash-nav and dash-main padding so
+ * the workspace owns the entire viewport with no top cut-off. */
+body.ws-mode .dash-nav {
+  display: none !important;
 }
-body:has(.proj-ws) .dash-main {
-  padding: 0;
-  margin: 0;
-  max-width: none;
-  height: 100vh;
+body.ws-mode .dash-main {
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: none !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+body.ws-mode .dash-shell {
+  min-height: 0 !important;
+}
+body.ws-mode {
   overflow: hidden;
-}
-body:has(.proj-ws) .dash-shell {
-  min-height: 0;
 }
 
 .proj-ws {
   position: fixed;
   inset: 0;
-  display: grid;
-  grid-template-columns: 240px 1fr;
+  display: flex;
+  flex-direction: row;
   background: var(--bg);
   z-index: 1;
   overflow: hidden;
@@ -1032,12 +1039,15 @@ body:has(.proj-ws) .dash-shell {
 /* ---------- Rail ---------- */
 
 .proj-rail {
+  width: 240px;
+  flex: 0 0 240px;
   background: var(--bg2);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 
 .proj-rail-top {
@@ -1235,16 +1245,32 @@ body:has(.proj-ws) .dash-shell {
 /* ---------- Main pane ---------- */
 
 .proj-main {
+  flex: 1 1 auto;
+  min-width: 0;
   background: var(--bg);
   overflow: auto;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
-.proj-view[hidden] {
-  display: none;
+/* Hidden views must stay hidden. The HTML `hidden` attribute defaults
+ * to display: none, but in case anything overrides it we re-state it
+ * with !important so view-switching is bulletproof. */
+.proj-view[hidden],
+.proj-view[aria-hidden="true"] {
+  display: none !important;
+}
+.proj-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .view-shell {
+  flex: 1 1 auto;
+  min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1306,13 +1332,23 @@ body:has(.proj-ws) .dash-shell {
   gap: 16px;
 }
 
-/* ---------- User menu (bottom-right floating) ---------- */
+/* ---------- User menu (bottom-left floating, inside the rail's footprint) ---------- */
 
 .proj-user-anchor {
   position: fixed;
-  right: 18px;
   bottom: 18px;
   z-index: 50;
+}
+/* Bottom-left placement: tucks into the rail's bottom-left corner so
+ * account controls live alongside the project navigation, not next to
+ * the diagram. Account-level actions (settings, billing, sign-out)
+ * conceptually belong with the user, not with the project canvas. */
+.proj-user-anchor-left {
+  left: 18px;
+}
+/* Legacy right-side placement preserved for fallback / future use. */
+.proj-user-anchor:not(.proj-user-anchor-left) {
+  right: 18px;
 }
 .proj-user-btn {
   width: 44px;
@@ -1352,7 +1388,6 @@ body:has(.proj-ws) .dash-shell {
 
 .proj-user-pop {
   position: absolute;
-  right: 0;
   bottom: calc(100% + 10px);
   width: 240px;
   background: var(--bg2);
@@ -1361,6 +1396,14 @@ body:has(.proj-ws) .dash-shell {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   animation: proj-user-pop-in 0.15s ease-out;
+}
+/* Anchor the popover to the same edge as its trigger so it doesn't
+ * overflow off the screen on either side. */
+.proj-user-pop-left {
+  left: 0;
+}
+.proj-user-pop:not(.proj-user-pop-left) {
+  right: 0;
 }
 @keyframes proj-user-pop-in {
   from {
