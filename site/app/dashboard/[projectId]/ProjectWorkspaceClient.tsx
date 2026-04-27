@@ -34,7 +34,7 @@
  * works even though view-switching is client-side.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 type ViewKey =
@@ -75,6 +75,18 @@ export function ProjectWorkspaceClient({
   autoRefreshSlot: ReactNode;
 }) {
   const [active, setActive] = useState<ViewKey>("blueprint");
+
+  // The workspace owns the viewport. Add a body class so the global
+  // dash-nav and dash-main padding are reliably overridden (plain
+  // class selectors are more compatible than :has() across browsers
+  // and avoid the scenario where the top dashboard nav stayed visible
+  // and ate the workspace's top edge).
+  useEffect(() => {
+    document.body.classList.add("ws-mode");
+    return () => {
+      document.body.classList.remove("ws-mode");
+    };
+  }, []);
 
   // Build the navigation. Sections separated by `null`, items hidden
   // by `null` value (e.g., AWS view is only relevant for AWS-connected
@@ -256,7 +268,7 @@ function UserMenu({ email }: { email: string }) {
     : "?";
 
   return (
-    <div className="proj-user-anchor">
+    <div className="proj-user-anchor proj-user-anchor-left">
       {open && (
         <>
           <div
@@ -264,7 +276,7 @@ function UserMenu({ email }: { email: string }) {
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="proj-user-pop" role="menu">
+          <div className="proj-user-pop proj-user-pop-left" role="menu">
             <div className="proj-user-pop-head">
               <div className="proj-user-pop-avatar">{initials}</div>
               <div className="proj-user-pop-id">
