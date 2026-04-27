@@ -8,19 +8,31 @@
  * Step 2: node clicks + pane clicks drive the workspace store's
  *   `selection`. Selected nodes render a ring (handled inside
  *   CanvasNode reading `data.isSelected`).
- * Step 3 (this step): platform filter chips set `filter` in the
- *   workspace store. Canvas reads it, computes the dimmed set via
- *   the shared dimming module (lib/dimming.ts), and layers
- *   `isDimmed` onto nodes + an opacity multiplier onto edges.
- *   Layout (dagre) is unaffected: only node `data.isDimmed` and
- *   edge `style.opacity` change when the filter changes.
+ * Step 3: platform filter chips set `filter` in the workspace
+ *   store. Canvas reads it, computes the dimmed set via the shared
+ *   dimming module (lib/dimming.ts), and layers `isDimmed` onto
+ *   nodes + an opacity multiplier onto edges.
+ * Step 4 (this step): double-click drills into a Service that has
+ *   children. The drillStack lives in the workspace store as
+ *   string[] (recursive-ready for step 5). Esc and the on-canvas
+ *   Back button both pop one level; breadcrumb segments climb to
+ *   any depth via `drillTo`. The same `useCanvasNodes` hook with
+ *   the same edge roll-up rules renders every level — no separate
+ *   route or screen per the spec anti-pattern.
  *
- * Selection rules (unchanged from step 2):
- *   - Click a node → setSelection({ kind: "service", id })
- *   - Click the same node again → deselect (back to { kind: "none" })
- *   - Click the canvas background (pane) → deselect
+ * Selection ↔ drill rule (per step 4 user instruction):
+ *   "Selection survives drill changes if the selected node is
+ *    still visible at the new level; otherwise selection clears."
+ *   Implemented as a useEffect that watches the visible set and
+ *   clears selection if it's no longer in scope.
  *
- * Filter ↔ selection independence (per the step 3 spec):
+ * Filter ↔ drill rule (per step 4 user instruction):
+ *   "A filter active at the project level remains active when you
+ *    drill in." Filter state is project-global; we do not touch it
+ *    on drill changes. See PR body for the documented edge case
+ *    where a persisted filter dims everything at a deeper level.
+ *
+ * Filter ↔ selection independence (unchanged from step 3):
  *   A node can stay selected while dimmed; clicking a dimmed node
  *   still works. We never disable pointer events on dimmed nodes.
  *
@@ -31,7 +43,7 @@
  * mechanism with a different "dimmed set" computation.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   Background,
   Controls,
@@ -43,7 +55,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { Project } from "@/lib/types";
+import type { Project, Service } from "@/lib/types";
 import {
   DIMMED_OPACITY,
   dimmedByPlatformFilter,
@@ -57,6 +69,26 @@ import {
   type CanvasNodeData,
 } from "./hooks/useCanvasNodes";
 
+/**
+ * "Drillable" predicate — the spec says: "Double-click a Service
+ * that contains other Services → enter that Service's interior."
+ * Implementation choice (per the step 4 user instruction): only
+ * `kind: "platform"` services with children are drillable in this
+ * step. Drilling into kind: "service" entries (e.g. RDS Postgres
+ * — leaf with no children, or User actor) does nothing.
+ *
+ * Step 5 will broaden this to any service-with-children when
+ * function-level drill (Lambda → processPayment) lands. Keeping
+ * the predicate explicit here makes that change a one-line edit.
+ */
+function isDrillable(service: Service, project: Project): boolean {
+  if (service.kind !== "platform") return false;
+  for (const candidate of Object.values(project.services)) {
+    if (candidate.parentId === service.id) return true;
+  }
+  return false;
+}
+
 // Memoised so React Flow doesn't re-instantiate the node-type
 // registry on every render. nodeTypes is a structural prop and a
 // fresh object would force RF to remount every node.
@@ -67,11 +99,60 @@ export default function Canvas({ project }: { project: Project }) {
   const selection = useWorkspaceStore((s) => s.selection);
   const setSelection = useWorkspaceStore((s) => s.setSelection);
   const filter = useWorkspaceStore((s) => s.filter);
+  const pushDrill = useWorkspaceStore((s) => s.pushDrill);
+  const popDrill = useWorkspaceStore((s) => s.popDrill);
 
   const { nodes: laidOutNodes, edges: laidOutEdges } = useCanvasNodes(
     project,
     drillStack
   );
+
+  // Visible-set memo — used by both the dimming computation below
+  // and the selection-survival effect. Cheap to compute (small
+  // arrays); the memo just keeps the reference stable so effects
+  // don't fire on identical drillStacks.
+  const visibleSet = useMemo(
+    () => new Set(visibleServiceIdsAt(project, drillStack)),
+    [project, drillStack]
+  );
+
+  // Selection ↔ drill rule: if the selected node is no longer in
+  // the visible set after a drill change, clear selection. We use
+  // an effect (not a derived value) because clearing is a state
+  // mutation; running it during render would be a React anti-
+  // pattern. Effect deps cover both directions: drilling in (selected
+  // platform vanishes from siblings) and drilling out (selected
+  // child vanishes when we climb past it).
+  useEffect(() => {
+    if (selection.kind === "service" && !visibleSet.has(selection.id)) {
+      setSelection({ kind: "none" });
+    }
+  }, [selection, visibleSet, setSelection]);
+
+  // Esc climbs one drill level (per spec). Window-level listener
+  // because the React Flow canvas can swallow keyboard events when
+  // it doesn't have focus. No-op when already at root.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (drillStack.length === 0) return;
+      // Don't intercept Esc while typing in any input/textarea/
+      // contenteditable. Future search affordance + inspector edit
+      // fields shouldn't be blocked by this handler.
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      popDrill();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drillStack, popDrill]);
 
   // Compute the set of dimmed node IDs for the current filter at
   // the current drill level. Source of truth lives in lib/dimming.ts
@@ -162,8 +243,25 @@ export default function Canvas({ project }: { project: Project }) {
     }
   }, [selection, setSelection]);
 
+  // Double-click drills into a Service that has children. Non-
+  // drillable nodes (kind: "service" leaves like User actor; future
+  // function-kind nodes) are no-ops on double-click. Single-click
+  // selection above is unaffected because RF fires onNodeClick
+  // independently for both ticks of the double-click.
+  const onNodeDoubleClick = useCallback<NodeMouseHandler>(
+    (_event, node) => {
+      const svc = project.services[node.id];
+      if (!svc) return;
+      if (!isDrillable(svc, project)) return;
+      pushDrill(node.id);
+    },
+    [project, pushDrill]
+  );
+
+  const isDrilledIn = drillStack.length > 0;
+
   return (
-    <div className="h-full w-full bg-bg3">
+    <div className="relative h-full w-full bg-bg3">
       <ReactFlow
         nodes={nodes}
         edges={styledEdges}
@@ -180,6 +278,7 @@ export default function Canvas({ project }: { project: Project }) {
         edgesFocusable={false}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         panOnDrag
         zoomOnScroll
         zoomOnPinch
@@ -194,6 +293,22 @@ export default function Canvas({ project }: { project: Project }) {
           className="!bg-bg2 !border !border-border2 !shadow-none"
         />
       </ReactFlow>
+
+      {/* Back button per spec: "Back button in canvas corner climbs
+          one level." Visible only when drilled in. Top-left so it's
+          out of the way of the bottom-left React Flow Controls.
+          Positioned over the canvas via absolute positioning on the
+          relative wrapper above. */}
+      {isDrilledIn && (
+        <button
+          type="button"
+          onClick={() => popDrill()}
+          aria-label="Back to parent level"
+          className="absolute left-3 top-3 z-10 flex h-8 items-center gap-2 rounded-md border border-border2 bg-bg2 px-3 font-mono text-[11px] uppercase tracking-wider text-ink2 transition-colors hover:text-ink"
+        >
+          <span aria-hidden="true">←</span> Back
+        </button>
+      )}
     </div>
   );
 }

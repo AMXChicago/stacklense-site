@@ -48,6 +48,16 @@ export type WorkspaceState = {
   setSelection: (selection: Selection) => void;
   pushDrill: (serviceId: string) => void;
   popDrill: () => void;
+  /**
+   * Truncate the drill stack to the first `depth` entries.
+   *   drillTo(0) ≡ resetDrill (back to project root)
+   *   drillTo(1) ≡ keep the first level only
+   * Used by breadcrumb segments — clicking the AWS segment from
+   * `[aws, lambda]` calls `drillTo(1)` and lands at `[aws]`.
+   * Out-of-range depths clamp to [0, current length] so callers
+   * can pass an index without bounds-checking first.
+   */
+  drillTo: (depth: number) => void;
   resetDrill: () => void;
   toggleFilter: (platformId: string) => void;
   clearFilter: () => void;
@@ -70,6 +80,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((s) => ({ drillStack: [...s.drillStack, serviceId] })),
   popDrill: () =>
     set((s) => ({ drillStack: s.drillStack.slice(0, -1) })),
+  drillTo: (depth) =>
+    set((s) => {
+      const clamped = Math.max(0, Math.min(depth, s.drillStack.length));
+      // Identity bail-out: if depth already matches, return the same
+      // array reference so subscribers don't re-render unnecessarily.
+      if (clamped === s.drillStack.length) return {};
+      return { drillStack: s.drillStack.slice(0, clamped) };
+    }),
   resetDrill: () => set({ drillStack: [] }),
   toggleFilter: (platformId) =>
     set((s) => {
@@ -82,3 +100,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   flashServices: (ids) => set({ flashedServiceIds: new Set(ids) }),
   clearFlash: () => set({ flashedServiceIds: EMPTY_SET }),
 }));
+
+// Development-only: expose the store on `window.__ws` so it can be
+// driven from the browser console / test eval. Useful for verifying
+// rendering invariants without depending on React Flow's pointer-
+// event system (which is fragile under preview-tab throttling).
+//
+// Guarded by NODE_ENV — never present in a production build, so this
+// cannot be used as an attack vector or accidental coupling. Zustand
+// stores are functions with `.getState`, `.setState`, `.subscribe`
+// methods — exposing them is the documented pattern for debug.
+if (
+  typeof window !== "undefined" &&
+  process.env.NODE_ENV !== "production"
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as unknown as { __ws?: unknown }).__ws = useWorkspaceStore;
+}

@@ -39,6 +39,7 @@
  */
 
 import type { Project, Service } from "@/lib/types";
+import { visibleServiceIdsAt } from "@/features/canvas/hooks/useCanvasNodes";
 import { useWorkspaceStore } from "@/store/workspace-store";
 
 // Same fallback palette as useCanvasNodes so a chip's brand dot
@@ -62,13 +63,26 @@ function brandColorFor(service: Service): string {
 
 export default function PlatformRow({ project }: { project: Project }) {
   const filter = useWorkspaceStore((s) => s.filter);
+  const drillStack = useWorkspaceStore((s) => s.drillStack);
   const toggleFilter = useWorkspaceStore((s) => s.toggleFilter);
   const clearFilter = useWorkspaceStore((s) => s.clearFilter);
 
-  // Discover chip-eligible platforms: top-level entries that are
-  // `kind: "platform"`. Done inline (cheap; rootServiceIds is small)
-  // — no need for a hook or memo until the project gets large.
-  const platforms: Service[] = project.rootServiceIds
+  // Step 4 update: chips reflect the platforms PRESENT AT THE
+  // CURRENT DRILL LEVEL, not just the project root.
+  //   - At root (drillStack=[]): visible ids = rootServiceIds. The
+  //     chip-eligible subset = root services that are kind="platform".
+  //   - At any deeper level: visible ids = direct children of the
+  //     drill parent. Those that are kind="platform" become chips.
+  //     For the sample project, drilling into AWS yields children
+  //     that are kind="service" — the chip row collapses to "All".
+  //
+  // We always render the row + the "All" chip (even when no
+  // platform chips are present at this level) so the layout stays
+  // stable across drill changes. Filter state is project-global;
+  // see PR body for the documented edge case where a chip's
+  // platform isn't visible at the current level (filter still
+  // applies, "All" still clears).
+  const platforms: Service[] = visibleServiceIdsAt(project, drillStack)
     .map((id) => project.services[id])
     .filter((s): s is Service => !!s && s.kind === "platform");
 
